@@ -143,8 +143,8 @@ def get_weekly_data(df):
     df_weekly['AÑO'] = df_weekly['FECHA_DE_EJECUCION'].dt.year
     df_weekly['SEMANA_STR'] = df_weekly['AÑO'].astype(str) + '-S' + df_weekly['SEMANA'].astype(str).str.zfill(2)
     
-    # Agrupar por semana
-    weekly_data = df_weekly.groupby(['SEMANA_STR', 'AÑO', 'SEMANA']).agg({
+    # Agrupar por semana - FILTRAR SOLO CUANDO AFECTA PRODUCCIÓN
+    weekly_data = df_weekly[df_weekly['PRODUCCION_AFECTADA'] == 'SI'].groupby(['SEMANA_STR', 'AÑO', 'SEMANA']).agg({
         'TFS_MIN': 'sum',
         'TR_MIN': 'sum',
         'TFC_MIN': 'sum',
@@ -365,10 +365,14 @@ def main():
                 with col2:
                     if not weekly_data.empty:
                         fig = go.Figure()
-                        fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TFS_MIN'], name='TFS', marker_color=COLOR_PALETTE['pastel'][1]))
-                        fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TR_MIN'], name='TR', marker_color=COLOR_PALETTE['pastel'][2]))
-                        fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TFC_MIN'], name='TFC', marker_color=COLOR_PALETTE['pastel'][3]))
-                        fig.update_layout(title='TFS, TR, TFC por Semana', barmode='group')
+                        # Solo agregamos TR y TFC, eliminamos TFS
+                        # TR en amarillo pastel y TFC en rojo pastel
+                        fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TR_MIN'], name='TR', 
+                                            marker_color='#FFD700'))  # Amarillo pastel
+                        fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TFC_MIN'], name='TFC', 
+                                            marker_color='#FFB3BA'))  # Rojo pastel
+                        # Cambiamos a modo apilado
+                        fig.update_layout(title='TR y TFC por Semana', barmode='stack')
                         st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
@@ -378,6 +382,9 @@ def main():
             st.header("Análisis de TFS")
             
             if not filtered_data.empty:
+                # Filtrar solo registros que afectan producción
+                filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
+                
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -391,7 +398,7 @@ def main():
                 
                 with col2:
                     # TFS por equipo
-                    tfs_por_equipo = filtered_data.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
+                    tfs_por_equipo = filtered_afecta.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
                     tfs_por_equipo = tfs_por_equipo.sort_values('TFS_MIN', ascending=False).head(10)
                     
                     fig = px.bar(tfs_por_equipo, x='EQUIPO', y='TFS_MIN',
@@ -401,7 +408,7 @@ def main():
                     st.plotly_chart(fig, use_container_width=True)
                 
                 # TFS por componente
-                tfs_por_componente = filtered_data.groupby('COMPONENTE')['TFS_MIN'].sum().reset_index()
+                tfs_por_componente = filtered_afecta.groupby('COMPONENTE')['TFS_MIN'].sum().reset_index()
                 tfs_por_componente = tfs_por_componente.sort_values('TFS_MIN', ascending=False).head(10)
                 
                 fig = px.bar(tfs_por_componente, x='COMPONENTE', y='TFS_MIN',
@@ -415,7 +422,7 @@ def main():
                 
                 with col1:
                     st.subheader("Resumen TFS por Equipo")
-                    resumen_equipo = filtered_data.groupby('EQUIPO').agg({
+                    resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({
                         'TFS_MIN': 'sum',
                         'TR_MIN': 'sum',
                         'TFC_MIN': 'sum'
@@ -424,7 +431,7 @@ def main():
                 
                 with col2:
                     st.subheader("Resumen TFS por Componente")
-                    resumen_componente = filtered_data.groupby('COMPONENTE').agg({
+                    resumen_componente = filtered_afecta.groupby('COMPONENTE').agg({
                         'TFS_MIN': 'sum',
                         'TR_MIN': 'sum',
                         'TFC_MIN': 'sum'
@@ -438,6 +445,9 @@ def main():
             st.header("Análisis de TR")
             
             if not filtered_data.empty:
+                # Filtrar solo registros que afectan producción
+                filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
+                
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -451,7 +461,7 @@ def main():
                 
                 with col2:
                     # TR por equipo
-                    tr_por_equipo = filtered_data.groupby('EQUIPO')['TR_MIN'].sum().reset_index()
+                    tr_por_equipo = filtered_afecta.groupby('EQUIPO')['TR_MIN'].sum().reset_index()
                     tr_por_equipo = tr_por_equipo.sort_values('TR_MIN', ascending=False).head(10)
                     
                     fig = px.bar(tr_por_equipo, x='EQUIPO', y='TR_MIN',
@@ -461,7 +471,7 @@ def main():
                     st.plotly_chart(fig, use_container_width=True)
                 
                 # Pareto TR por componente
-                tr_por_componente = filtered_data.groupby('COMPONENTE')['TR_MIN'].sum().reset_index()
+                tr_por_componente = filtered_afecta.groupby('COMPONENTE')['TR_MIN'].sum().reset_index()
                 tr_por_componente = tr_por_componente.sort_values('TR_MIN', ascending=False).head(15)
                 
                 fig = px.bar(tr_por_componente, x='COMPONENTE', y='TR_MIN',
@@ -477,6 +487,9 @@ def main():
             st.header("Análisis de TFC")
             
             if not filtered_data.empty:
+                # Filtrar solo registros que afectan producción
+                filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
+                
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -490,7 +503,7 @@ def main():
                 
                 with col2:
                     # TFC por equipo
-                    tfc_por_equipo = filtered_data.groupby('EQUIPO')['TFC_MIN'].sum().reset_index()
+                    tfc_por_equipo = filtered_afecta.groupby('EQUIPO')['TFC_MIN'].sum().reset_index()
                     tfc_por_equipo = tfc_por_equipo.sort_values('TFC_MIN', ascending=False).head(10)
                     
                     fig = px.bar(tfc_por_equipo, x='EQUIPO', y='TFC_MIN',
@@ -500,7 +513,7 @@ def main():
                     st.plotly_chart(fig, use_container_width=True)
                 
                 # Pareto TFC por componente
-                tfc_por_componente = filtered_data.groupby('COMPONENTE')['TFC_MIN'].sum().reset_index()
+                tfc_por_componente = filtered_afecta.groupby('COMPONENTE')['TFC_MIN'].sum().reset_index()
                 tfc_por_componente = tfc_por_componente.sort_values('TFC_MIN', ascending=False).head(15)
                 
                 fig = px.bar(tfc_por_componente, x='COMPONENTE', y='TFC_MIN',
@@ -542,39 +555,74 @@ def main():
                         df_weekly_mtto['AÑO'] = df_weekly_mtto['FECHA_DE_EJECUCION'].dt.year
                         df_weekly_mtto['SEMANA_STR'] = df_weekly_mtto['AÑO'].astype(str) + '-S' + df_weekly_mtto['SEMANA'].astype(str).str.zfill(2)
                         
-                        # Agrupar por semana y tipo de mantenimiento
+                        # Agrupar por semana y tipo de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO (sin filtrar por producción afectada)
                         tipo_mtto_semana = df_weekly_mtto.groupby(['SEMANA_STR', 'TIPO DE MTTO'])['TR_MIN'].sum().reset_index()
                         
                         # Ordenar por semana
                         tipo_mtto_semana = tipo_mtto_semana.sort_values('SEMANA_STR')
                         
-                        # Definir el orden correcto de las categorías
-                        orden_categorias = ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PLANIFICADO Y PROGRAMADO', 'CORRECTIVO DE EMERGENCIA']
-                        tipo_mtto_semana['TIPO DE MTTO'] = pd.Categorical(tipo_mtto_semana['TIPO DE MTTO'], categories=orden_categorias, ordered=True)
+                        # Obtener todos los tipos de mantenimiento únicos
+                        tipos_mtto_unicos = filtered_data['TIPO DE MTTO'].unique()
+                        orden_categorias = sorted(tipos_mtto_unicos)
+                        
+                        # Si hay tipos específicos conocidos, podemos ordenarlos de manera específica
+                        tipos_ordenados = []
+                        for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PLANIFICADO Y PROGRAMADO', 'CORRECTIVO DE EMERGENCIA']:
+                            if tipo in tipos_mtto_unicos:
+                                tipos_ordenados.append(tipo)
+                        
+                        # Agregar cualquier otro tipo que no esté en la lista ordenada
+                        for tipo in tipos_mtto_unicos:
+                            if tipo not in tipos_ordenados:
+                                tipos_ordenados.append(tipo)
+                        
+                        tipo_mtto_semana['TIPO DE MTTO'] = pd.Categorical(tipo_mtto_semana['TIPO DE MTTO'], categories=tipos_ordenados, ordered=True)
                         tipo_mtto_semana = tipo_mtto_semana.sort_values(['SEMANA_STR', 'TIPO DE MTTO'])
                         
                         # Crear gráfico de barras apiladas con colores específicos
                         fig = px.bar(tipo_mtto_semana, x='SEMANA_STR', y='TR_MIN', color='TIPO DE MTTO',
-                                    title='Tipo de Mantenimiento por Semana (Barras Apiladas)',
+                                    title='Tipo de Mantenimiento por Semana (Barras Apiladas) - Todos los Tipos',
                                     labels={'SEMANA_STR': 'Semana', 'TR_MIN': 'Tiempo (min)'},
                                     color_discrete_map=COLOR_PALETTE['tipo_mtto'],
-                                    category_orders={'TIPO DE MTTO': orden_categorias})
+                                    category_orders={'TIPO DE MTTO': tipos_ordenados})
                         st.plotly_chart(fig, use_container_width=True)
                 
                 with col2:
-                    # Distribución de mantenimiento
+                    # Distribución de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO (sin filtrar por producción afectada)
                     tipo_mtto_totals = filtered_data.groupby('TIPO DE MTTO')['TR_MIN'].sum().reset_index()
                     
-                    # Definir el orden correcto de las categorías para el pie chart
-                    orden_categorias = ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PLANIFICADO Y PROGRAMADO', 'CORRECTIVO DE EMERGENCIA']
-                    tipo_mtto_totals['TIPO DE MTTO'] = pd.Categorical(tipo_mtto_totals['TIPO DE MTTO'], categories=orden_categorias, ordered=True)
+                    # Obtener todos los tipos de mantenimiento únicos
+                    tipos_mtto_unicos = filtered_data['TIPO DE MTTO'].unique()
+                    tipos_ordenados = sorted(tipos_mtto_unicos)
+                    
+                    # Si hay tipos específicos conocidos, podemos ordenarlos de manera específica
+                    tipos_ordenados = []
+                    for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PLANIFICADO Y PROGRAMADO', 'CORRECTIVO DE EMERGENCIA']:
+                        if tipo in tipos_mtto_unicos:
+                            tipos_ordenados.append(tipo)
+                    
+                    # Agregar cualquier otro tipo que no esté en la lista ordenada
+                    for tipo in tipos_mtto_unicos:
+                        if tipo not in tipos_ordenados:
+                            tipos_ordenados.append(tipo)
+                    
+                    tipo_mtto_totals['TIPO DE MTTO'] = pd.Categorical(tipo_mtto_totals['TIPO DE MTTO'], categories=tipos_ordenados, ordered=True)
                     tipo_mtto_totals = tipo_mtto_totals.sort_values('TIPO DE MTTO')
                     
+                    # Crear un mapa de colores extendido para incluir todos los tipos
+                    color_map_extendido = COLOR_PALETTE['tipo_mtto'].copy()
+                    colores_adicionales = ['#FFA500', '#800080', '#008000', '#FF69B4', '#00CED1']  # Colores para tipos adicionales
+                    
+                    for i, tipo in enumerate(tipos_ordenados):
+                        if tipo not in color_map_extendido:
+                            # Asignar un color de la lista de colores adicionales
+                            color_map_extendido[tipo] = colores_adicionales[i % len(colores_adicionales)]
+                    
                     fig = px.pie(tipo_mtto_totals, values='TR_MIN', names='TIPO DE MTTO',
-                                title='Distribución de Mantenimiento',
+                                title='Distribución de Mantenimiento - Todos los Tipos',
                                 color='TIPO DE MTTO',
-                                color_discrete_map=COLOR_PALETTE['tipo_mtto'],
-                                category_orders={'TIPO DE MTTO': orden_categorias})
+                                color_discrete_map=color_map_extendido,
+                                category_orders={'TIPO DE MTTO': tipos_ordenados})
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
