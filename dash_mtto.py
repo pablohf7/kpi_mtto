@@ -27,9 +27,30 @@ COLOR_PALETTE = {
     }
 }
 
-# Función para cargar y preparar datos del Excel
+# Función para cargar datos desde Google Sheets
+@st.cache_data(ttl=300)  # Cache por 5 minutos para actualizaciones automáticas
+def load_data_from_google_sheets():
+    try:
+        # ID del archivo de Google Sheets (extraído del enlace proporcionado)
+        sheet_id = "1s6PZKB4RmTch2XasM8MdzWHGZa_nUKYc"
+        
+        # Construir URL para exportar como CSV
+        gsheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+        
+        # Leer el archivo directamente desde Google Sheets
+        df = pd.read_excel(gsheet_url, sheet_name='DATAMTTO')
+        
+        # Limpiar y preparar datos
+        df = clean_and_prepare_data(df)
+        return df
+    except Exception as e:
+        st.error(f"Error al cargar datos desde Google Sheets: {e}")
+        st.info("Asegúrate de que el archivo de Google Sheets sea público y accesible")
+        return pd.DataFrame()
+
+# Función para cargar desde archivo local (mantenida para compatibilidad)
 @st.cache_data
-def load_data(uploaded_file):
+def load_data_from_file(uploaded_file):
     try:
         # Leer el archivo Excel
         df = pd.read_excel(uploaded_file, sheet_name='DATAMTTO')
@@ -161,38 +182,6 @@ def get_weekly_data(df):
     
     return weekly_data
 
-# Función para crear plantilla Excel basada en el dataset real
-def create_template():
-    # Crear DataFrame con la estructura del dataset real
-    template_data = {
-        'OT': ['Ejemplo-001'],
-        'FECHA EJECUCIÓN': [datetime.now().date()],
-        'EQUIPO': ['EQUIPO_EJEMPLO'],
-        'UBICACIÓN TÉCNICA': ['UBICACION_EJEMPLO'],
-        'COMPONENTE': ['COMPONENTE_EJEMPLO'],
-        'TIPO DE MTTO': ['PREVENTIVO'],
-        'ACTIVIDAD': ['ACTIVIDAD_EJEMPLO'],
-        'FRECUENCIA': ['SEMANAL'],
-        'Tiempo Prog (min)': [30],
-        'PRODUCCIÓN AFECTADA (SI-NO)': ['NO'],
-        'STATUS': ['CULMINADO'],
-        'TIEMPO ESTIMADO DIARIO (min)': [480],
-        'HORA PARADA DE MÁQUINA': ['08:00:00'],
-        'HORA INICIO': ['08:05:00'],
-        'HORA FINAL': ['08:30:00'],
-        'HORA DE ARRANQUE': ['08:35:00']
-    }
-    
-    template_df = pd.DataFrame(template_data)
-    
-    # Crear archivo Excel en memoria
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        template_df.to_excel(writer, sheet_name='DATAMTTO', index=False)
-    
-    buffer.seek(0)
-    return buffer
-
 # Función para aplicar filtros
 def apply_filters(df, equipo_filter, componente_filter, ubicacion_filter, fecha_inicio, fecha_fin):
     filtered_df = df.copy()
@@ -228,14 +217,50 @@ def main():
     st.sidebar.title("Opciones")
     
     # Cargar datos
-    st.sidebar.subheader("Cargar Datos")
-    uploaded_file = st.sidebar.file_uploader("Cargar archivo Excel", type=["xlsx", "xls"])
+    st.sidebar.subheader("Fuente de Datos")
     
-    if uploaded_file is not None:
-        df = load_data(uploaded_file)
-        if not df.empty:
-            st.session_state.data = df
-            st.sidebar.success("Archivo cargado correctamente")
+    # Opción para usar Google Sheets o archivo local
+    data_source = st.sidebar.radio(
+        "Selecciona la fuente de datos:",
+        ["Google Sheets (Recomendado)", "Archivo Local"]
+    )
+    
+    if data_source == "Google Sheets (Recomendado)":
+        # Botón para cargar/actualizar datos desde Google Sheets
+        if st.sidebar.button("🔄 Cargar/Actualizar desde Google Sheets"):
+            with st.spinner("Cargando datos desde Google Sheets..."):
+                df = load_data_from_google_sheets()
+                if not df.empty:
+                    st.session_state.data = df
+                    st.sidebar.success("✅ Datos cargados correctamente desde Google Sheets")
+                else:
+                    st.sidebar.error("❌ Error al cargar datos desde Google Sheets")
+        
+        # Mostrar estado de la carga automática
+        if not st.session_state.data.empty:
+            st.sidebar.info("📊 Datos cargados desde Google Sheets")
+            st.sidebar.write(f"Última actualización: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            st.sidebar.write(f"Registros totales: {len(st.session_state.data)}")
+    
+    else:  # Archivo Local
+        uploaded_file = st.sidebar.file_uploader("Cargar archivo Excel", type=["xlsx", "xls"])
+        
+        if uploaded_file is not None:
+            df = load_data_from_file(uploaded_file)
+            if not df.empty:
+                st.session_state.data = df
+                st.sidebar.success("✅ Archivo cargado correctamente")
+    
+    # Botón para forzar actualización de cache
+    if st.sidebar.button("🔄 Forzar Actualización de Datos"):
+        st.cache_data.clear()
+        if data_source == "Google Sheets (Recomendado)":
+            with st.spinner("Actualizando datos desde Google Sheets..."):
+                df = load_data_from_google_sheets()
+                if not df.empty:
+                    st.session_state.data = df
+                    st.sidebar.success("✅ Datos actualizados correctamente")
+        st.rerun()
     
     # Filtros
     st.sidebar.subheader("Filtros")
@@ -676,15 +701,27 @@ def main():
                 st.info("No hay datos para mostrar con los filtros seleccionados")
     
     else:
-        st.info("Por favor, carga un archivo Excel para comenzar.")
+        st.info("Por favor, carga datos para comenzar.")
         
         # Mostrar instrucciones
         st.subheader("Instrucciones:")
         st.markdown("""
-        1. Prepara tu archivo Excel 'DATASET INDICADORES DE GESTION DE  MANTENIMIENTO' con los datos de mantenimiento en una hoja llamada 'DATAMTTO'
-        2. Carga el archivo usando el cargador de archivos en la barra lateral
-        3. Utiliza los filtros para analizar períodos específicos, equipos o ubicaciones técnicas
-        4. Explora las diferentes pestañas para analizar los indicadores de mantenimiento
+        1. **Para usar Google Sheets (Recomendado):**
+           - Asegúrate de que el archivo de Google Sheets sea público
+           - Selecciona "Google Sheets (Recomendado)" en la barra lateral
+           - Haz clic en "Cargar/Actualizar desde Google Sheets"
+        
+        2. **Para usar archivo local:**
+           - Selecciona "Archivo Local" en la barra lateral
+           - Carga tu archivo Excel con los datos de mantenimiento
+        
+        3. **Estructura del archivo:**
+           - Los datos deben estar en una hoja llamada 'DATAMTTO'
+           - Incluir columnas como: FECHA EJECUCIÓN, EQUIPO, COMPONENTE, TIPO DE MTTO, etc.
+        
+        4. **Actualizaciones automáticas:**
+           - Los datos de Google Sheets se actualizan automáticamente cada 5 minutos
+           - Puedes forzar una actualización con el botón "Forzar Actualización de Datos"
         """)
 
 if __name__ == "__main__":
