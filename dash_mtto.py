@@ -205,6 +205,21 @@ def apply_filters(df, equipo_filter, componente_filter, ubicacion_filter, fecha_
     
     return filtered_df
 
+# Función para obtener la fecha y hora actual en formato español
+def get_current_datetime_spanish():
+    now = datetime.now()
+    # Formato: "15 de enero de 2024, 14:30:25"
+    months = [
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+    ]
+    day = now.day
+    month = months[now.month - 1]
+    year = now.year
+    time_str = now.strftime("%H:%M:%S")
+    
+    return f"{day} de {month} de {year}, {time_str}"
+
 # Interfaz principal
 def main():
     st.title("📊 Dashboard de Indicadores de Mantenimiento")
@@ -212,6 +227,9 @@ def main():
     # Inicializar datos en session_state si no existen
     if 'data' not in st.session_state:
         st.session_state.data = pd.DataFrame()
+    
+    if 'last_update' not in st.session_state:
+        st.session_state.last_update = None
     
     # Sidebar
     st.sidebar.title("Opciones")
@@ -232,15 +250,16 @@ def main():
                 df = load_data_from_google_sheets()
                 if not df.empty:
                     st.session_state.data = df
+                    st.session_state.last_update = get_current_datetime_spanish()
                     st.sidebar.success("✅ Datos cargados correctamente desde Google Sheets")
                 else:
                     st.sidebar.error("❌ Error al cargar datos desde Google Sheets")
         
         # Mostrar estado de la carga automática
-        if not st.session_state.data.empty:
-            st.sidebar.info("📊 Datos cargados desde Google Sheets")
-            st.sidebar.write(f"Última actualización: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            st.sidebar.write(f"Registros totales: {len(st.session_state.data)}")
+        if not st.session_state.data.empty and st.session_state.last_update:
+            st.sidebar.markdown(f"**📅Última actualización:**")
+            st.sidebar.markdown(f"`{st.session_state.last_update}`")
+            st.sidebar.write(f"**Registros totales:** {len(st.session_state.data)}")
     
     else:  # Archivo Local
         uploaded_file = st.sidebar.file_uploader("Cargar archivo Excel", type=["xlsx", "xls"])
@@ -249,6 +268,7 @@ def main():
             df = load_data_from_file(uploaded_file)
             if not df.empty:
                 st.session_state.data = df
+                st.session_state.last_update = get_current_datetime_spanish()
                 st.sidebar.success("✅ Archivo cargado correctamente")
     
     # Botón para forzar actualización de cache
@@ -259,6 +279,7 @@ def main():
                 df = load_data_from_google_sheets()
                 if not df.empty:
                     st.session_state.data = df
+                    st.session_state.last_update = get_current_datetime_spanish()
                     st.sidebar.success("✅ Datos actualizados correctamente")
         st.rerun()
     
@@ -313,12 +334,12 @@ def main():
         
         # Mostrar información de estado
         st.sidebar.subheader("Estado")
-        st.sidebar.write(f"Registros: {len(filtered_data)}")
-        st.sidebar.write(f"Equipos: {len(filtered_data['EQUIPO'].unique())}")
+        st.sidebar.write(f"**Registros filtrados:** {len(filtered_data)}")
+        st.sidebar.write(f"**Equipos únicos:** {len(filtered_data['EQUIPO'].unique())}")
         if not filtered_data.empty and 'FECHA_DE_EJECUCION' in filtered_data.columns:
             min_date_filtered = filtered_data['FECHA_DE_EJECUCION'].min()
             max_date_filtered = filtered_data['FECHA_DE_EJECUCION'].max()
-            st.sidebar.write(f"Período: {min_date_filtered.strftime('%Y-%m-%d')} a {max_date_filtered.strftime('%Y-%m-%d')}")
+            st.sidebar.write(f"**Período:** {min_date_filtered.strftime('%d/%m/%Y')} a {max_date_filtered.strftime('%d/%m/%Y')}")
         
         # CSS personalizado para pestañas más grandes
         st.markdown("""
