@@ -89,7 +89,7 @@ def clean_and_prepare_data(df):
     df_clean['FECHA_DE_EJECUCION'] = pd.to_datetime(df_clean['FECHA_DE_EJECUCION'])
     
     # Asegurar que las columnas numéricas sean numéricas
-    numeric_columns = ['TR_MIN', 'TFC_MIN', 'TFS_MIN', 'TDISPONIBLE', 'TIEMPO_PROG_MIN']
+    numeric_columns = ['TR_MIN', 'TFC_MIN', 'TFS_MIN', 'TDISPONIBLE', 'TIEMPO_PROG_MIN', 'H_EXTRA_MIN']
     for col in numeric_columns:
         if col in df_clean.columns:
             # Reemplazar fórmulas y textos por valores numéricos
@@ -149,6 +149,9 @@ def calculate_metrics(df):
     else:
         m['mp_pct'] = m['mbc_pct'] = m['mce_pct'] = m['mcp_pct'] = 0
     
+    # Horas extras acumuladas
+    m['horas_extras_acumuladas'] = df['H_EXTRA_MIN'].sum() if 'H_EXTRA_MIN' in df.columns else 0
+    
     return m
 
 # Función para obtener datos semanales
@@ -181,6 +184,53 @@ def get_weekly_data(df):
     weekly_data = weekly_data.sort_values('SEMANA_NUM')
     
     return weekly_data
+
+# Función para obtener datos semanales de horas extras
+def get_weekly_extra_hours(df):
+    if df.empty or 'FECHA_DE_EJECUCION' not in df.columns:
+        return pd.DataFrame()
+    
+    # Crear copia para no modificar el original
+    df_weekly = df.copy()
+    
+    # Obtener semana del año y año
+    df_weekly['SEMANA'] = df_weekly['FECHA_DE_EJECUCION'].dt.isocalendar().week
+    df_weekly['AÑO'] = df_weekly['FECHA_DE_EJECUCION'].dt.year
+    df_weekly['SEMANA_STR'] = df_weekly['AÑO'].astype(str) + '-S' + df_weekly['SEMANA'].astype(str).str.zfill(2)
+    
+    # Agrupar por semana - TODOS LOS REGISTROS (no solo los que afectan producción)
+    weekly_extra_data = df_weekly.groupby(['SEMANA_STR', 'AÑO', 'SEMANA']).agg({
+        'H_EXTRA_MIN': 'sum'
+    }).reset_index()
+    
+    # Crear columna numérica para ordenar correctamente las semanas
+    weekly_extra_data['SEMANA_NUM'] = weekly_extra_data['AÑO'].astype(str) + weekly_extra_data['SEMANA'].astype(str).str.zfill(2)
+    weekly_extra_data = weekly_extra_data.sort_values('SEMANA_NUM')
+    
+    return weekly_extra_data
+
+# Función para calcular horas extras de la última semana
+def get_last_week_extra_hours(df):
+    if df.empty or 'FECHA_DE_EJECUCION' not in df.columns:
+        return 0
+    
+    # Obtener la fecha más reciente
+    last_date = df['FECHA_DE_EJECUCION'].max()
+    
+    # Calcular el inicio de la última semana (lunes)
+    last_week_start = last_date - timedelta(days=last_date.weekday())
+    last_week_end = last_week_start + timedelta(days=6)
+    
+    # Filtrar datos de la última semana
+    last_week_data = df[
+        (df['FECHA_DE_EJECUCION'] >= last_week_start) & 
+        (df['FECHA_DE_EJECUCION'] <= last_week_end)
+    ]
+    
+    # Sumar horas extras de la última semana
+    last_week_extra = last_week_data['H_EXTRA_MIN'].sum() if 'H_EXTRA_MIN' in last_week_data.columns else 0
+    
+    return last_week_extra
 
 # Función para aplicar filtros
 def apply_filters(df, equipo_filter, componente_filter, ubicacion_filter, fecha_inicio, fecha_fin):
@@ -357,12 +407,14 @@ def main():
         </style>
         """, unsafe_allow_html=True)
         
-        # Pestañas
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Planta", "TFS", "TR", "TFC", "Tipo de Mtto", "Confiabilidad"])
+        # Pestañas - AGREGAMOS LA PESTAÑA 7: HORAS EXTRAS
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Planta", "TFS", "TR", "TFC", "Tipo de Mtto", "Confiabilidad", "Horas Extras"])
         
         # Calcular métricas
         metrics = calculate_metrics(filtered_data)
         weekly_data = get_weekly_data(filtered_data)
+        weekly_extra_data = get_weekly_extra_hours(filtered_data)
+        last_week_extra = get_last_week_extra_hours(filtered_data)
         
         # Pestaña Planta
         with tab1:
@@ -718,6 +770,76 @@ def main():
                                      labels={'SEMANA_STR': 'Semana', 'MTBF_SEMANAL': 'MTBF (min)'})
                         fig.update_traces(line_color=COLOR_PALETTE['pastel'][5], mode='lines+markers')
                         st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No hay datos para mostrar con los filtros seleccionados")
+        
+        # NUEVA PESTAÑA: Horas Extras
+        with tab7:
+            st.header("⏰ Análisis de Horas Extras")
+            
+            if not filtered_data.empty:
+                # Métricas principales de horas extras
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Horas Extras Acumuladas
+                    horas_extras_acumuladas = metrics.get('horas_extras_acumuladas', 0)
+                    # Convertir a horas (dividir entre 60)
+                    horas_extras_acumuladas_horas = horas_extras_acumuladas / 60
+                    st.metric(
+                        "Horas Extras Acumuladas", 
+                        f"{horas_extras_acumuladas_horas:.1f}", 
+                        "horas",
+                        help="Suma total de todas las horas extras desde el primer registro hasta el último"
+                    )
+                
+                with col2:
+                    # Horas Extras Acumuladas Última Semana
+                    last_week_extra_horas = last_week_extra / 60
+                    st.metric(
+                        "Horas Extras Última Semana", 
+                        f"{last_week_extra_horas:.1f}", 
+                        "horas",
+                        help="Suma de horas extras de la última semana registrada"
+                    )
+                
+                # Gráfico de horas extras semanales
+                st.subheader("Horas Extras Semanales")
+                
+                if not weekly_extra_data.empty:
+                    # Convertir minutos a horas para el gráfico
+                    weekly_extra_data_horas = weekly_extra_data.copy()
+                    weekly_extra_data_horas['H_EXTRA_HORAS'] = weekly_extra_data_horas['H_EXTRA_MIN'] / 60
+                    
+                    fig = px.bar(
+                        weekly_extra_data_horas, 
+                        x='SEMANA_STR', 
+                        y='H_EXTRA_HORAS',
+                        title='Horas Extras por Semana',
+                        labels={'SEMANA_STR': 'Semana', 'H_EXTRA_HORAS': 'Horas Extras'},
+                        color='H_EXTRA_HORAS',
+                        color_continuous_scale='Viridis'
+                    )
+                    fig.update_layout(showlegend=False)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No hay datos de horas extras para mostrar")
+                
+                # Tabla detallada de horas extras por semana
+                st.subheader("Detalle de Horas Extras por Semana")
+                if not weekly_extra_data.empty:
+                    # Crear tabla resumen
+                    resumen_semanal = weekly_extra_data.copy()
+                    resumen_semanal['HORAS_EXTRAS'] = resumen_semanal['H_EXTRA_MIN'] / 60
+                    resumen_semanal = resumen_semanal[['SEMANA_STR', 'HORAS_EXTRAS']]
+                    resumen_semanal = resumen_semanal.rename(columns={
+                        'SEMANA_STR': 'Semana',
+                        'HORAS_EXTRAS': 'Horas Extras'
+                    })
+                    st.dataframe(resumen_semanal, use_container_width=True)
+                else:
+                    st.info("No hay datos detallados de horas extras para mostrar")
+                
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
     
