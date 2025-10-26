@@ -209,29 +209,6 @@ def get_weekly_extra_hours(df):
     
     return weekly_extra_data
 
-# Función para calcular horas extras de la última semana
-def get_last_week_extra_hours(df):
-    if df.empty or 'FECHA_DE_EJECUCION' not in df.columns:
-        return 0
-    
-    # Obtener la fecha más reciente
-    last_date = df['FECHA_DE_EJECUCION'].max()
-    
-    # Calcular el inicio de la última semana (lunes)
-    last_week_start = last_date - timedelta(days=last_date.weekday())
-    last_week_end = last_week_start + timedelta(days=6)
-    
-    # Filtrar datos de la última semana
-    last_week_data = df[
-        (df['FECHA_DE_EJECUCION'] >= last_week_start) & 
-        (df['FECHA_DE_EJECUCION'] <= last_week_end)
-    ]
-    
-    # Sumar horas extras de la última semana
-    last_week_extra = last_week_data['H_EXTRA_MIN'].sum() if 'H_EXTRA_MIN' in last_week_data.columns else 0
-    
-    return last_week_extra
-
 # Función para aplicar filtros
 def apply_filters(df, equipo_filter, componente_filter, ubicacion_filter, fecha_inicio, fecha_fin):
     filtered_df = df.copy()
@@ -414,7 +391,6 @@ def main():
         metrics = calculate_metrics(filtered_data)
         weekly_data = get_weekly_data(filtered_data)
         weekly_extra_data = get_weekly_extra_hours(filtered_data)
-        last_week_extra = get_last_week_extra_hours(filtered_data)
         
         # Pestaña Planta
         with tab1:
@@ -778,7 +754,7 @@ def main():
             st.header("⏰ Análisis de Horas Extras")
             
             if not filtered_data.empty:
-                # Métricas principales de horas extras
+                # Métrica principal de horas extras - COLOCADA A LA IZQUIERDA
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -794,14 +770,8 @@ def main():
                     )
                 
                 with col2:
-                    # Horas Extras Acumuladas Última Semana
-                    last_week_extra_horas = last_week_extra / 60
-                    st.metric(
-                        "Horas Extras Última Semana", 
-                        f"{last_week_extra_horas:.1f}", 
-                        "horas",
-                        help="Suma de horas extras de la última semana registrada"
-                    )
+                    # Espacio vacío para mantener el diseño de dos columnas
+                    pass
                 
                 # Gráfico de horas extras semanales
                 st.subheader("Horas Extras Semanales")
