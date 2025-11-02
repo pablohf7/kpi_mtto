@@ -8,12 +8,12 @@ import io
 import base64
 from datetime import datetime, timedelta
 
-# Configuración de la página
+# Configuración de la página - BARRA LATERAL RECOGIDA POR DEFECTO
 st.set_page_config(
     page_title="Dashboard de Indicadores de Mantenimiento",
     page_icon="🔧",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"  # Cambiado a "collapsed"
 )
 
 # Paleta de colores específicos para tipos de mantenimiento
@@ -46,20 +46,6 @@ def load_data_from_google_sheets():
     except Exception as e:
         st.error(f"Error al cargar datos desde Google Sheets: {e}")
         st.info("Asegúrate de que el archivo de Google Sheets sea público y accesible")
-        return pd.DataFrame()
-
-# Función para cargar desde archivo local (mantenida para compatibilidad)
-@st.cache_data
-def load_data_from_file(uploaded_file):
-    try:
-        # Leer el archivo Excel
-        df = pd.read_excel(uploaded_file, sheet_name='DATAMTTO')
-        
-        # Limpiar y preparar datos
-        df = clean_and_prepare_data(df)
-        return df
-    except Exception as e:
-        st.error(f"Error al cargar el archivo: {e}")
         return pd.DataFrame()
 
 def clean_and_prepare_data(df):
@@ -258,57 +244,25 @@ def main():
     if 'last_update' not in st.session_state:
         st.session_state.last_update = None
     
-    # Sidebar
-    st.sidebar.title("Opciones")
-    
-    # Cargar datos
-    st.sidebar.subheader("Fuente de Datos")
-    
-    # Opción para usar Google Sheets o archivo local
-    data_source = st.sidebar.radio(
-        "Selecciona la fuente de datos:",
-        ["Google Sheets (Recomendado)", "Archivo Local"]
-    )
-    
-    if data_source == "Google Sheets (Recomendado)":
-        # Botón para cargar/actualizar datos desde Google Sheets
-        if st.sidebar.button("🔄 Cargar/Actualizar desde Google Sheets"):
-            with st.spinner("Cargando datos desde Google Sheets..."):
-                df = load_data_from_google_sheets()
-                if not df.empty:
-                    st.session_state.data = df
-                    st.session_state.last_update = get_current_datetime_spanish()
-                    st.sidebar.success("✅ Datos cargados correctamente desde Google Sheets")
-                else:
-                    st.sidebar.error("❌ Error al cargar datos desde Google Sheets")
-        
-        # Mostrar estado de la carga automática
-        if not st.session_state.data.empty and st.session_state.last_update:
-            st.sidebar.markdown(f"**📅Última actualización:**")
-            st.sidebar.markdown(f"`{st.session_state.last_update}`")
-            st.sidebar.write(f"**Registros totales:** {len(st.session_state.data)}")
-    
-    else:  # Archivo Local
-        uploaded_file = st.sidebar.file_uploader("Cargar archivo Excel", type=["xlsx", "xls"])
-        
-        if uploaded_file is not None:
-            df = load_data_from_file(uploaded_file)
+    # CARGA AUTOMÁTICA DESDE GOOGLE SHEETS AL INICIAR
+    if st.session_state.data.empty:
+        with st.spinner("Cargando datos desde Google Sheets..."):
+            df = load_data_from_google_sheets()
             if not df.empty:
                 st.session_state.data = df
                 st.session_state.last_update = get_current_datetime_spanish()
-                st.sidebar.success("✅ Archivo cargado correctamente")
+                st.success("✅ Datos cargados correctamente desde Google Sheets")
+            else:
+                st.error("❌ No se pudieron cargar los datos desde Google Sheets")
     
-    # Botón para forzar actualización de cache
-    if st.sidebar.button("🔄 Forzar Actualización de Datos"):
-        st.cache_data.clear()
-        if data_source == "Google Sheets (Recomendado)":
-            with st.spinner("Actualizando datos desde Google Sheets..."):
-                df = load_data_from_google_sheets()
-                if not df.empty:
-                    st.session_state.data = df
-                    st.session_state.last_update = get_current_datetime_spanish()
-                    st.sidebar.success("✅ Datos actualizados correctamente")
-        st.rerun()
+    # Sidebar
+    st.sidebar.title("Opciones")
+    
+    # MOSTRAR ESTADO DE LA CARGA AUTOMÁTICA
+    if not st.session_state.data.empty and st.session_state.last_update:
+        st.sidebar.markdown(f"**📅Última actualización:**")
+        st.sidebar.markdown(f"`{st.session_state.last_update}`")
+        st.sidebar.write(f"**Registros totales:** {len(st.session_state.data)}")
     
     # Filtros
     st.sidebar.subheader("Filtros")
@@ -384,7 +338,7 @@ def main():
         </style>
         """, unsafe_allow_html=True)
         
-        # Pestañas - AGREGAMOS LA PESTAÑA 7: HORAS EXTRAS
+        # Pestañas
         tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Planta", "TFS", "TR", "TFC", "Tipo de Mtto", "Confiabilidad", "Horas Extras"])
         
         # Calcular métricas
@@ -397,8 +351,8 @@ def main():
             st.header("📈 Indicadores de Planta")
             
             if not filtered_data.empty:
-                # Métricas principales
-                col1, col2, col3, col4, col5, col6 = st.columns(6)
+                # Métricas principales - AHORA CON TR Y TFC SEPARADOS
+                col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
                 
                 with col1:
                     st.metric("Tiempo Disponible", f"{metrics.get('td', 0):,.0f}", "minutos")
@@ -421,9 +375,14 @@ def main():
                     st.metric("Indisponibilidad", f"{indisponibilidad:.1f}%", delta=None, delta_color="normal")
                     st.write(status)
                 
+                # NUEVOS INDICADORES: TR Y TFC POR SEPARADO
                 with col6:
-                    total_downtime = metrics.get('tr', 0) + metrics.get('tfc', 0)
-                    st.metric("TR + TFC", f"{total_downtime:,.0f}", "minutos")
+                    tr = metrics.get('tr', 0)
+                    st.metric("TR", f"{tr:,.0f}", "minutos")
+                
+                with col7:
+                    tfc = metrics.get('tfc', 0)
+                    st.metric("TFC", f"{tfc:,.0f}", "minutos")
                 
                 # Gráficos
                 col1, col2 = st.columns(2)
@@ -439,7 +398,6 @@ def main():
                 with col2:
                     if not weekly_data.empty:
                         fig = go.Figure()
-                        # Solo agregamos TR y TFC, eliminamos TFS
                         # TR en amarillo pastel y TFC en rojo pastel
                         fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TR_MIN'], name='TR', 
                                             marker_color='#FFD700'))  # Amarillo pastel
@@ -749,7 +707,7 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # NUEVA PESTAÑA: Horas Extras
+        # Pestaña Horas Extras
         with tab7:
             st.header("⏰ Análisis de Horas Extras")
             
@@ -819,22 +777,17 @@ def main():
         # Mostrar instrucciones
         st.subheader("Instrucciones:")
         st.markdown("""
-        1. **Para usar Google Sheets (Recomendado):**
-           - Asegúrate de que el archivo de Google Sheets sea público
-           - Selecciona "Google Sheets (Recomendado)" en la barra lateral
-           - Haz clic en "Cargar/Actualizar desde Google Sheets"
+        1. **Carga automática desde Google Sheets:**
+           - Los datos se cargan automáticamente desde Google Sheets al abrir la aplicación
+           - Asegúrate de que el archivo de Google Sheets sea público y accesible
         
-        2. **Para usar archivo local:**
-           - Selecciona "Archivo Local" en la barra lateral
-           - Carga tu archivo Excel con los datos de mantenimiento
-        
-        3. **Estructura del archivo:**
+        2. **Estructura del archivo:**
            - Los datos deben estar en una hoja llamada 'DATAMTTO'
            - Incluir columnas como: FECHA EJECUCIÓN, EQUIPO, COMPONENTE, TIPO DE MTTO, etc.
         
-        4. **Actualizaciones automáticas:**
+        3. **Actualizaciones automáticas:**
            - Los datos de Google Sheets se actualizan automáticamente cada 5 minutos
-           - Puedes forzar una actualización con el botón "Forzar Actualización de Datos"
+           - Recarga la página para obtener los datos más recientes
         """)
 
 if __name__ == "__main__":
