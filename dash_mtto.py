@@ -32,7 +32,7 @@ COLOR_PALETTE = {
 def load_data_from_google_sheets():
     try:
         # ID del archivo de Google Sheets (extraído del enlace proporcionado)
-        sheet_id = "1X3xgXkeyoei0WkgoNV54zx83XkIKhDlOVEo93lsaFB0"
+        sheet_id = "19XvrwxJUabcxdEr31HHNZ7VyTrAda_2wxR1K38gzOfQ"
         
         # Construir URL para exportar como CSV
         gsheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
