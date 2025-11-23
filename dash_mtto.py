@@ -13,25 +13,39 @@ st.set_page_config(
     page_title="Dashboard de Indicadores de Mantenimiento",
     page_icon="🔧",
     layout="wide",
-    initial_sidebar_state="collapsed"  # Cambiado a "collapsed"
+    initial_sidebar_state="collapsed"
 )
 
 # Paleta de colores específicos para tipos de mantenimiento
 COLOR_PALETTE = {
     'pastel': ['#AEC6CF', '#FFB3BA', '#FFDFBA', '#BAFFC9', '#BAE1FF', '#F0E6EF', '#C9C9FF', '#FFC9F0'],
     'tipo_mtto': {
-        'PREVENTIVO': '#87CEEB',  # Azul claro
-        'BASADO EN CONDICIÓN': '#00008B',  # Azul oscuro
-        'CORRECTIVO PLANIFICADO Y PROGRAMADO': '#FFD700',  # Amarillo
-        'CORRECTIVO DE EMERGENCIA': '#FF0000'  # Rojo
+        'PREVENTIVO': '#87CEEB',
+        'BASADO EN CONDICIÓN': '#00008B',
+        'CORRECTIVO PROGRAMADO': '#FFD700',
+        'CORRECTIVO DE EMERGENCIA': '#FF0000',
+        'MEJORA DE SISTEMA': '#32CD32'
     }
 }
 
+# Función para calcular la duración en minutos entre dos fechas y horas
+def calcular_duracion_minutos(fecha_inicio, hora_inicio, fecha_fin, hora_fin):
+    try:
+        # Combinar fecha y hora
+        datetime_inicio = pd.to_datetime(fecha_inicio.strftime('%Y-%m-%d') + ' ' + str(hora_inicio))
+        datetime_fin = pd.to_datetime(fecha_fin.strftime('%Y-%m-%d') + ' ' + str(hora_fin))
+        
+        # Calcular diferencia en minutos
+        duracion = (datetime_fin - datetime_inicio).total_seconds() / 60
+        return max(duracion, 0)  # Asegurar que no sea negativo
+    except:
+        return 0
+
 # Función para cargar datos desde Google Sheets
-@st.cache_data(ttl=300)  # Cache por 5 minutos para actualizaciones automáticas
+@st.cache_data(ttl=300)
 def load_data_from_google_sheets():
     try:
-        # ID del archivo de Google Sheets (extraído del enlace proporcionado)
+        # ID del archivo de Google Sheets
         sheet_id = "1X3xgXkeyoei0WkgoNV54zx83XkIKhDlOVEo93lsaFB0"
         
         # Construir URL para exportar como CSV
@@ -54,7 +68,8 @@ def clean_and_prepare_data(df):
     
     # Renombrar columnas para consistencia
     df_clean = df_clean.rename(columns={
-        'FECHA EJECUCIÓN': 'FECHA_DE_EJECUCION',
+        'FECHA DE INICIO': 'FECHA_DE_INICIO',
+        'FECHA DE FIN': 'FECHA_DE_FIN',
         'Tiempo Prog (min)': 'TIEMPO_PROG_MIN',
         'PRODUCCIÓN AFECTADA (SI-NO)': 'PRODUCCION_AFECTADA',
         'TIEMPO ESTIMADO DIARIO (min)': 'TDISPONIBLE',
@@ -62,23 +77,44 @@ def clean_and_prepare_data(df):
         'TFC (min)': 'TFC_MIN',
         'TFS (min)': 'TFS_MIN',
         'h normal (min)': 'H_NORMAL_MIN',
-        'h extra (min)': 'H_EXTRA_MIN'
+        'h extra (min)': 'H_EXTRA_MIN',
+        'HORA PARADA DE MÁQUINA': 'HORA_PARADA',
+        'HORA INICIO': 'HORA_INICIO',
+        'HORA FINAL': 'HORA_FINAL',
+        'HORA DE ARRANQUE': 'HORA_ARRANQUE'
     })
     
-    # Manejar la columna de ubicación técnica (mantener el nombre original si existe)
+    # Manejar la columna de ubicación técnica
     if 'UBICACIÓN TÉCNICA' not in df_clean.columns and 'UBICACION TECNICA' in df_clean.columns:
         df_clean = df_clean.rename(columns={'UBICACION TECNICA': 'UBICACIÓN TÉCNICA'})
     elif 'UBICACIÓN TÉCNICA' not in df_clean.columns and 'Ubicación Técnica' in df_clean.columns:
         df_clean = df_clean.rename(columns={'Ubicación Técnica': 'UBICACIÓN TÉCNICA'})
     
     # Convertir fechas
-    df_clean['FECHA_DE_EJECUCION'] = pd.to_datetime(df_clean['FECHA_DE_EJECUCION'])
+    df_clean['FECHA_DE_INICIO'] = pd.to_datetime(df_clean['FECHA_DE_INICIO'])
+    df_clean['FECHA_DE_FIN'] = pd.to_datetime(df_clean['FECHA_DE_FIN'])
+    
+    # Calcular TR_MIN (Tiempo Real) basado en fecha/hora de inicio y fin
+    df_clean['TR_MIN_CALCULADO'] = df_clean.apply(
+        lambda x: calcular_duracion_minutos(
+            x['FECHA_DE_INICIO'], x['HORA_INICIO'], 
+            x['FECHA_DE_FIN'], x['HORA_FINAL']
+        ), axis=1
+    )
+    
+    # Usar TR calculado si la columna original está vacía o es cero
+    if 'TR_MIN' in df_clean.columns:
+        df_clean['TR_MIN'] = df_clean.apply(
+            lambda x: x['TR_MIN_CALCULADO'] if pd.isna(x['TR_MIN']) or x['TR_MIN'] == 0 else x['TR_MIN'], 
+            axis=1
+        )
+    else:
+        df_clean['TR_MIN'] = df_clean['TR_MIN_CALCULADO']
     
     # Asegurar que las columnas numéricas sean numéricas
     numeric_columns = ['TR_MIN', 'TFC_MIN', 'TFS_MIN', 'TDISPONIBLE', 'TIEMPO_PROG_MIN', 'H_EXTRA_MIN']
     for col in numeric_columns:
         if col in df_clean.columns:
-            # Reemplazar fórmulas y textos por valores numéricos
             df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(0)
     
     # Filtrar solo registros culminados para análisis
@@ -131,9 +167,10 @@ def calculate_metrics(df):
         m['mp_pct'] = (tipo_mtto_totals.get('PREVENTIVO', 0) / total_mtto) * 100
         m['mbc_pct'] = (tipo_mtto_totals.get('BASADO EN CONDICIÓN', 0) / total_mtto) * 100
         m['mce_pct'] = (tipo_mtto_totals.get('CORRECTIVO DE EMERGENCIA', 0) / total_mtto) * 100
-        m['mcp_pct'] = (tipo_mtto_totals.get('CORRECTIVO PLANIFICADO Y PROGRAMADO', 0) / total_mtto) * 100
+        m['mcp_pct'] = (tipo_mtto_totals.get('CORRECTIVO PROGRAMADO', 0) / total_mtto) * 100
+        m['mms_pct'] = (tipo_mtto_totals.get('MEJORA DE SISTEMA', 0) / total_mtto) * 100
     else:
-        m['mp_pct'] = m['mbc_pct'] = m['mce_pct'] = m['mcp_pct'] = 0
+        m['mp_pct'] = m['mbc_pct'] = m['mce_pct'] = m['mcp_pct'] = m['mms_pct'] = 0
     
     # Horas extras acumuladas
     m['horas_extras_acumuladas'] = df['H_EXTRA_MIN'].sum() if 'H_EXTRA_MIN' in df.columns else 0
@@ -142,15 +179,15 @@ def calculate_metrics(df):
 
 # Función para obtener datos semanales
 def get_weekly_data(df):
-    if df.empty or 'FECHA_DE_EJECUCION' not in df.columns:
+    if df.empty or 'FECHA_DE_INICIO' not in df.columns:
         return pd.DataFrame()
     
     # Crear copia para no modificar el original
     df_weekly = df.copy()
     
-    # Obtener semana del año y año
-    df_weekly['SEMANA'] = df_weekly['FECHA_DE_EJECUCION'].dt.isocalendar().week
-    df_weekly['AÑO'] = df_weekly['FECHA_DE_EJECUCION'].dt.year
+    # Obtener semana del año y año - USAR FECHA_DE_INICIO
+    df_weekly['SEMANA'] = df_weekly['FECHA_DE_INICIO'].dt.isocalendar().week
+    df_weekly['AÑO'] = df_weekly['FECHA_DE_INICIO'].dt.year
     df_weekly['SEMANA_STR'] = df_weekly['AÑO'].astype(str) + '-S' + df_weekly['SEMANA'].astype(str).str.zfill(2)
     
     # Agrupar por semana - FILTRAR SOLO CUANDO AFECTA PRODUCCIÓN
@@ -173,18 +210,18 @@ def get_weekly_data(df):
 
 # Función para obtener datos semanales de horas extras
 def get_weekly_extra_hours(df):
-    if df.empty or 'FECHA_DE_EJECUCION' not in df.columns:
+    if df.empty or 'FECHA_DE_INICIO' not in df.columns:
         return pd.DataFrame()
     
     # Crear copia para no modificar el original
     df_weekly = df.copy()
     
-    # Obtener semana del año y año
-    df_weekly['SEMANA'] = df_weekly['FECHA_DE_EJECUCION'].dt.isocalendar().week
-    df_weekly['AÑO'] = df_weekly['FECHA_DE_EJECUCION'].dt.year
+    # Obtener semana del año y año - USAR FECHA_DE_INICIO
+    df_weekly['SEMANA'] = df_weekly['FECHA_DE_INICIO'].dt.isocalendar().week
+    df_weekly['AÑO'] = df_weekly['FECHA_DE_INICIO'].dt.year
     df_weekly['SEMANA_STR'] = df_weekly['AÑO'].astype(str) + '-S' + df_weekly['SEMANA'].astype(str).str.zfill(2)
     
-    # Agrupar por semana - TODOS LOS REGISTROS (no solo los que afectan producción)
+    # Agrupar por semana - TODOS LOS REGISTROS
     weekly_extra_data = df_weekly.groupby(['SEMANA_STR', 'AÑO', 'SEMANA']).agg({
         'H_EXTRA_MIN': 'sum'
     }).reset_index()
@@ -209,11 +246,11 @@ def apply_filters(df, equipo_filter, componente_filter, ubicacion_filter, fecha_
         if 'UBICACIÓN TÉCNICA' in filtered_df.columns:
             filtered_df = filtered_df[filtered_df['UBICACIÓN TÉCNICA'] == ubicacion_filter]
     
-    # Aplicar filtro de fechas
+    # Aplicar filtro de fechas - USAR FECHA_DE_INICIO
     if fecha_inicio is not None and fecha_fin is not None:
         filtered_df = filtered_df[
-            (filtered_df['FECHA_DE_EJECUCION'].dt.date >= fecha_inicio) &
-            (filtered_df['FECHA_DE_EJECUCION'].dt.date <= fecha_fin)
+            (filtered_df['FECHA_DE_INICIO'].dt.date >= fecha_inicio) &
+            (filtered_df['FECHA_DE_INICIO'].dt.date <= fecha_fin)
         ]
     
     return filtered_df
@@ -221,7 +258,6 @@ def apply_filters(df, equipo_filter, componente_filter, ubicacion_filter, fecha_
 # Función para obtener la fecha y hora actual en formato español
 def get_current_datetime_spanish():
     now = datetime.now()
-    # Formato: "15 de enero de 2024, 14:30:25"
     months = [
         "enero", "febrero", "marzo", "abril", "mayo", "junio",
         "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
@@ -232,6 +268,19 @@ def get_current_datetime_spanish():
     time_str = now.strftime("%H:%M:%S")
     
     return f"{day} de {month} de {year}, {time_str}"
+
+# Función para formatear fecha en formato DD/MM/AAAA
+def format_date_dd_mm_aaaa(date):
+    """Formatea una fecha en formato DD/MM/AAAA"""
+    if isinstance(date, (datetime, pd.Timestamp)):
+        return date.strftime('%d/%m/%Y')
+    elif isinstance(date, str):
+        try:
+            return pd.to_datetime(date).strftime('%d/%m/%Y')
+        except:
+            return date
+    else:
+        return str(date)
 
 # Interfaz principal
 def main():
@@ -268,10 +317,9 @@ def main():
     st.sidebar.subheader("Filtros")
     
     if not st.session_state.data.empty:
-        # 1. FILTRO DE FECHA
-        # Obtener rango de fechas del dataset
-        min_date = st.session_state.data['FECHA_DE_EJECUCION'].min().date()
-        max_date = st.session_state.data['FECHA_DE_EJECUCION'].max().date()
+        # 1. FILTRO DE FECHA - USAR FECHA_DE_INICIO
+        min_date = st.session_state.data['FECHA_DE_INICIO'].min().date()
+        max_date = st.session_state.data['FECHA_DE_INICIO'].max().date()
         
         st.sidebar.write("**Rango de Fechas**")
         col1, col2 = st.sidebar.columns(2)
@@ -292,8 +340,14 @@ def main():
                 key="fecha_fin"
             )
         
+        # Mostrar las fechas seleccionadas en formato DD/MM/AAAA
+        fecha_inicio_str = format_date_dd_mm_aaaa(fecha_inicio)
+        fecha_fin_str = format_date_dd_mm_aaaa(fecha_fin)
+        st.sidebar.write(f"**Período seleccionado:**")
+        st.sidebar.write(f"**Desde:** {fecha_inicio_str}")
+        st.sidebar.write(f"**Hasta:** {fecha_fin_str}")
+        
         # 2. FILTRO DE UBICACIÓN TÉCNICA
-        # Verificar si existe la columna UBICACIÓN TÉCNICA
         if 'UBICACIÓN TÉCNICA' in st.session_state.data.columns:
             ubicaciones = ["Todos"] + sorted(st.session_state.data['UBICACIÓN TÉCNICA'].dropna().unique().tolist())
         else:
@@ -317,10 +371,15 @@ def main():
         st.sidebar.subheader("Estado")
         st.sidebar.write(f"**Registros filtrados:** {len(filtered_data)}")
         st.sidebar.write(f"**Equipos únicos:** {len(filtered_data['EQUIPO'].unique())}")
-        if not filtered_data.empty and 'FECHA_DE_EJECUCION' in filtered_data.columns:
-            min_date_filtered = filtered_data['FECHA_DE_EJECUCION'].min()
-            max_date_filtered = filtered_data['FECHA_DE_EJECUCION'].max()
-            st.sidebar.write(f"**Período:** {min_date_filtered.strftime('%d/%m/%Y')} a {max_date_filtered.strftime('%d/%m/%Y')}")
+        if not filtered_data.empty and 'FECHA_DE_INICIO' in filtered_data.columns:
+            min_date_filtered = filtered_data['FECHA_DE_INICIO'].min()
+            max_date_filtered = filtered_data['FECHA_DE_INICIO'].max()
+            
+            # Formatear las fechas en DD/MM/AAAA
+            min_date_str = format_date_dd_mm_aaaa(min_date_filtered)
+            max_date_str = format_date_dd_mm_aaaa(max_date_filtered)
+            
+            st.sidebar.write(f"**Período:** {min_date_str} a {max_date_str}")
         
         # CSS personalizado para pestañas más grandes
         st.markdown("""
@@ -346,12 +405,12 @@ def main():
         weekly_data = get_weekly_data(filtered_data)
         weekly_extra_data = get_weekly_extra_hours(filtered_data)
         
-        # Pestaña Planta
+        # Pestaña Planta - CORREGIDA
         with tab1:
             st.header("📈 Indicadores de Planta")
             
             if not filtered_data.empty:
-                # Métricas principales - AHORA CON TR Y TFC SEPARADOS
+                # Métricas principales
                 col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
                 
                 with col1:
@@ -375,7 +434,6 @@ def main():
                     st.metric("Indisponibilidad", f"{indisponibilidad:.1f}%", delta=None, delta_color="normal")
                     st.write(status)
                 
-                # NUEVOS INDICADORES: TR Y TFC POR SEPARADO
                 with col6:
                     tr = metrics.get('tr', 0)
                     st.metric("TR", f"{tr:,.0f}", "minutos")
@@ -394,22 +452,24 @@ def main():
                                      labels={'SEMANA_STR': 'Semana', 'DISPO_SEMANAL': 'Disponibilidad (%)'})
                         fig.update_traces(line_color=COLOR_PALETTE['pastel'][0], mode='lines+markers')
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos semanales para mostrar")
                 
                 with col2:
                     if not weekly_data.empty:
                         fig = go.Figure()
-                        # TR en amarillo pastel y TFC en rojo pastel
                         fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TR_MIN'], name='TR', 
-                                            marker_color='#FFD700'))  # Amarillo pastel
+                                            marker_color='#FFD700'))
                         fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TFC_MIN'], name='TFC', 
-                                            marker_color='#FFB3BA'))  # Rojo pastel
-                        # Cambiamos a modo apilado
+                                            marker_color='#FFB3BA'))
                         fig.update_layout(title='TR y TFC por Semana', barmode='stack')
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos semanales para mostrar")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña TFS
+        # Pestaña TFS - COMPLETA
         with tab2:
             st.header("Análisis de TFS")
             
@@ -420,34 +480,40 @@ def main():
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # TFS por semana
                     if not weekly_data.empty:
                         fig = px.line(weekly_data, x='SEMANA_STR', y='TFS_MIN',
                                      title='TFS por Semana (Minutos)',
                                      labels={'SEMANA_STR': 'Semana', 'TFS_MIN': 'TFS (min)'})
                         fig.update_traces(line_color=COLOR_PALETTE['pastel'][1], mode='lines+markers')
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos semanales para mostrar")
                 
                 with col2:
-                    # TFS por equipo
                     tfs_por_equipo = filtered_afecta.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
                     tfs_por_equipo = tfs_por_equipo.sort_values('TFS_MIN', ascending=False).head(10)
                     
-                    fig = px.bar(tfs_por_equipo, x='EQUIPO', y='TFS_MIN',
-                                title='TFS por Equipo',
-                                labels={'EQUIPO': 'Equipo', 'TFS_MIN': 'TFS (min)'})
-                    fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
-                    st.plotly_chart(fig, use_container_width=True)
+                    if not tfs_por_equipo.empty:
+                        fig = px.bar(tfs_por_equipo, x='EQUIPO', y='TFS_MIN',
+                                    title='TFS por Equipo',
+                                    labels={'EQUIPO': 'Equipo', 'TFS_MIN': 'TFS (min)'})
+                        fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de TFS por equipo")
                 
                 # TFS por componente
                 tfs_por_componente = filtered_afecta.groupby('COMPONENTE')['TFS_MIN'].sum().reset_index()
                 tfs_por_componente = tfs_por_componente.sort_values('TFS_MIN', ascending=False).head(10)
                 
-                fig = px.bar(tfs_por_componente, x='COMPONENTE', y='TFS_MIN',
-                            title='TFS por Componente',
-                            labels={'COMPONENTE': 'Componente', 'TFS_MIN': 'TFS (min)'})
-                fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
-                st.plotly_chart(fig, use_container_width=True)
+                if not tfs_por_componente.empty:
+                    fig = px.bar(tfs_por_componente, x='COMPONENTE', y='TFS_MIN',
+                                title='TFS por Componente',
+                                labels={'COMPONENTE': 'Componente', 'TFS_MIN': 'TFS (min)'})
+                    fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No hay datos de TFS por componente")
                 
                 # Tablas de resumen
                 col1, col2 = st.columns(2)
@@ -472,7 +538,7 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña TR
+        # Pestaña TR - COMPLETA
         with tab3:
             st.header("Análisis de TR")
             
@@ -483,38 +549,44 @@ def main():
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # TR por semana
                     if not weekly_data.empty:
                         fig = px.line(weekly_data, x='SEMANA_STR', y='TR_MIN',
                                      title='TR por Semana (Minutos)',
                                      labels={'SEMANA_STR': 'Semana', 'TR_MIN': 'TR (min)'})
                         fig.update_traces(line_color=COLOR_PALETTE['pastel'][2], mode='lines+markers')
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos semanales para mostrar")
                 
                 with col2:
-                    # TR por equipo
                     tr_por_equipo = filtered_afecta.groupby('EQUIPO')['TR_MIN'].sum().reset_index()
                     tr_por_equipo = tr_por_equipo.sort_values('TR_MIN', ascending=False).head(10)
                     
-                    fig = px.bar(tr_por_equipo, x='EQUIPO', y='TR_MIN',
-                                title='TR por Equipo',
-                                labels={'EQUIPO': 'Equipo', 'TR_MIN': 'TR (min)'})
-                    fig.update_traces(marker_color=COLOR_PALETTE['pastel'][2])
-                    st.plotly_chart(fig, use_container_width=True)
+                    if not tr_por_equipo.empty:
+                        fig = px.bar(tr_por_equipo, x='EQUIPO', y='TR_MIN',
+                                    title='TR por Equipo',
+                                    labels={'EQUIPO': 'Equipo', 'TR_MIN': 'TR (min)'})
+                        fig.update_traces(marker_color=COLOR_PALETTE['pastel'][2])
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de TR por equipo")
                 
                 # Pareto TR por componente
                 tr_por_componente = filtered_afecta.groupby('COMPONENTE')['TR_MIN'].sum().reset_index()
                 tr_por_componente = tr_por_componente.sort_values('TR_MIN', ascending=False).head(15)
                 
-                fig = px.bar(tr_por_componente, x='COMPONENTE', y='TR_MIN',
-                            title='Pareto TR por Componente',
-                            labels={'COMPONENTE': 'Componente', 'TR_MIN': 'TR (min)'})
-                fig.update_traces(marker_color=COLOR_PALETTE['pastel'][2])
-                st.plotly_chart(fig, use_container_width=True)
+                if not tr_por_componente.empty:
+                    fig = px.bar(tr_por_componente, x='COMPONENTE', y='TR_MIN',
+                                title='Pareto TR por Componente',
+                                labels={'COMPONENTE': 'Componente', 'TR_MIN': 'TR (min)'})
+                    fig.update_traces(marker_color=COLOR_PALETTE['pastel'][2])
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No hay datos de TR por componente")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña TFC
+        # Pestaña TFC - COMPLETA
         with tab4:
             st.header("Análisis de TFC")
             
@@ -525,43 +597,49 @@ def main():
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # TFC por semana
                     if not weekly_data.empty:
                         fig = px.line(weekly_data, x='SEMANA_STR', y='TFC_MIN',
                                      title='TFC por Semana (Minutos)',
                                      labels={'SEMANA_STR': 'Semana', 'TFC_MIN': 'TFC (min)'})
                         fig.update_traces(line_color=COLOR_PALETTE['pastel'][3], mode='lines+markers')
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos semanales para mostrar")
                 
                 with col2:
-                    # TFC por equipo
                     tfc_por_equipo = filtered_afecta.groupby('EQUIPO')['TFC_MIN'].sum().reset_index()
                     tfc_por_equipo = tfc_por_equipo.sort_values('TFC_MIN', ascending=False).head(10)
                     
-                    fig = px.bar(tfc_por_equipo, x='EQUIPO', y='TFC_MIN',
-                                title='TFC por Equipo',
-                                labels={'EQUIPO': 'Equipo', 'TFC_MIN': 'TFC (min)'})
-                    fig.update_traces(marker_color=COLOR_PALETTE['pastel'][3])
-                    st.plotly_chart(fig, use_container_width=True)
+                    if not tfc_por_equipo.empty:
+                        fig = px.bar(tfc_por_equipo, x='EQUIPO', y='TFC_MIN',
+                                    title='TFC por Equipo',
+                                    labels={'EQUIPO': 'Equipo', 'TFC_MIN': 'TFC (min)'})
+                        fig.update_traces(marker_color=COLOR_PALETTE['pastel'][3])
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de TFC por equipo")
                 
                 # Pareto TFC por componente
                 tfc_por_componente = filtered_afecta.groupby('COMPONENTE')['TFC_MIN'].sum().reset_index()
                 tfc_por_componente = tfc_por_componente.sort_values('TFC_MIN', ascending=False).head(15)
                 
-                fig = px.bar(tfc_por_componente, x='COMPONENTE', y='TFC_MIN',
-                            title='Pareto TFC por Componente',
-                            labels={'COMPONENTE': 'Componente', 'TFC_MIN': 'TFC (min)'})
-                fig.update_traces(marker_color=COLOR_PALETTE['pastel'][3])
-                st.plotly_chart(fig, use_container_width=True)
+                if not tfc_por_componente.empty:
+                    fig = px.bar(tfc_por_componente, x='COMPONENTE', y='TFC_MIN',
+                                title='Pareto TFC por Componente',
+                                labels={'COMPONENTE': 'Componente', 'TFC_MIN': 'TFC (min)'})
+                    fig.update_traces(marker_color=COLOR_PALETTE['pastel'][3])
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No hay datos de TFC por componente")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña Tipo de Mantenimiento
+        # Pestaña Tipo de Mantenimiento - COMPLETA
         with tab5:
             st.header("Análisis por Tipo de Mantenimiento")
             
             if not filtered_data.empty:
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2, col3, col4, col5 = st.columns(5)
                 
                 with col1:
                     st.metric("Mantenimiento Preventivo", f"{metrics.get('mp_pct', 0):.1f}%")
@@ -570,47 +648,48 @@ def main():
                     st.metric("Mant. Basado en Condición", f"{metrics.get('mbc_pct', 0):.1f}%")
                 
                 with col3:
-                    st.metric("Correctivo Planificado", f"{metrics.get('mcp_pct', 0):.1f}%")
+                    st.metric("Correctivo Programado", f"{metrics.get('mcp_pct', 0):.1f}%")
                 
                 with col4:
                     st.metric("Correctivo de Emergencia", f"{metrics.get('mce_pct', 0):.1f}%")
+                
+                with col5:
+                    st.metric("Mejora de Sistema", f"{metrics.get('mms_pct', 0):.1f}%")
                 
                 # Gráficos
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     # Tipo de mantenimiento por semana - BARRAS APILADAS
-                    if not weekly_data.empty:
-                        # Primero necesitamos obtener los datos semanales por tipo de mantenimiento
-                        df_weekly_mtto = filtered_data.copy()
-                        df_weekly_mtto['SEMANA'] = df_weekly_mtto['FECHA_DE_EJECUCION'].dt.isocalendar().week
-                        df_weekly_mtto['AÑO'] = df_weekly_mtto['FECHA_DE_EJECUCION'].dt.year
-                        df_weekly_mtto['SEMANA_STR'] = df_weekly_mtto['AÑO'].astype(str) + '-S' + df_weekly_mtto['SEMANA'].astype(str).str.zfill(2)
-                        
-                        # Agrupar por semana y tipo de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO (sin filtrar por producción afectada)
-                        tipo_mtto_semana = df_weekly_mtto.groupby(['SEMANA_STR', 'TIPO DE MTTO'])['TR_MIN'].sum().reset_index()
-                        
-                        # Ordenar por semana
-                        tipo_mtto_semana = tipo_mtto_semana.sort_values('SEMANA_STR')
-                        
-                        # Obtener todos los tipos de mantenimiento únicos
-                        tipos_mtto_unicos = filtered_data['TIPO DE MTTO'].unique()
-                        orden_categorias = sorted(tipos_mtto_unicos)
-                        
-                        # Si hay tipos específicos conocidos, podemos ordenarlos de manera específica
-                        tipos_ordenados = []
-                        for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PLANIFICADO Y PROGRAMADO', 'CORRECTIVO DE EMERGENCIA']:
-                            if tipo in tipos_mtto_unicos:
-                                tipos_ordenados.append(tipo)
-                        
-                        # Agregar cualquier otro tipo que no esté en la lista ordenada
-                        for tipo in tipos_mtto_unicos:
-                            if tipo not in tipos_ordenados:
-                                tipos_ordenados.append(tipo)
-                        
-                        tipo_mtto_semana['TIPO DE MTTO'] = pd.Categorical(tipo_mtto_semana['TIPO DE MTTO'], categories=tipos_ordenados, ordered=True)
-                        tipo_mtto_semana = tipo_mtto_semana.sort_values(['SEMANA_STR', 'TIPO DE MTTO'])
-                        
+                    df_weekly_mtto = filtered_data.copy()
+                    df_weekly_mtto['SEMANA'] = df_weekly_mtto['FECHA_DE_INICIO'].dt.isocalendar().week
+                    df_weekly_mtto['AÑO'] = df_weekly_mtto['FECHA_DE_INICIO'].dt.year
+                    df_weekly_mtto['SEMANA_STR'] = df_weekly_mtto['AÑO'].astype(str) + '-S' + df_weekly_mtto['SEMANA'].astype(str).str.zfill(2)
+                    
+                    # Agrupar por semana y tipo de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO
+                    tipo_mtto_semana = df_weekly_mtto.groupby(['SEMANA_STR', 'TIPO DE MTTO'])['TR_MIN'].sum().reset_index()
+                    
+                    # Ordenar por semana
+                    tipo_mtto_semana = tipo_mtto_semana.sort_values('SEMANA_STR')
+                    
+                    # Obtener todos los tipos de mantenimiento únicos
+                    tipos_mtto_unicos = filtered_data['TIPO DE MTTO'].unique()
+                    
+                    # Ordenar los tipos de mantenimiento
+                    tipos_ordenados = []
+                    for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PROGRAMADO', 'CORRECTIVO DE EMERGENCIA', 'MEJORA DE SISTEMA']:
+                        if tipo in tipos_mtto_unicos:
+                            tipos_ordenados.append(tipo)
+                    
+                    # Agregar cualquier otro tipo que no esté en la lista ordenada
+                    for tipo in tipos_mtto_unicos:
+                        if tipo not in tipos_ordenados:
+                            tipos_ordenados.append(tipo)
+                    
+                    tipo_mtto_semana['TIPO DE MTTO'] = pd.Categorical(tipo_mtto_semana['TIPO DE MTTO'], categories=tipos_ordenados, ordered=True)
+                    tipo_mtto_semana = tipo_mtto_semana.sort_values(['SEMANA_STR', 'TIPO DE MTTO'])
+                    
+                    if not tipo_mtto_semana.empty:
                         # Crear gráfico de barras apiladas con colores específicos
                         fig = px.bar(tipo_mtto_semana, x='SEMANA_STR', y='TR_MIN', color='TIPO DE MTTO',
                                     title='Tipo de Mantenimiento por Semana (Barras Apiladas) - Todos los Tipos',
@@ -618,18 +697,19 @@ def main():
                                     color_discrete_map=COLOR_PALETTE['tipo_mtto'],
                                     category_orders={'TIPO DE MTTO': tipos_ordenados})
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de tipo de mantenimiento por semana")
                 
                 with col2:
-                    # Distribución de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO (sin filtrar por producción afectada)
+                    # Distribución de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO
                     tipo_mtto_totals = filtered_data.groupby('TIPO DE MTTO')['TR_MIN'].sum().reset_index()
                     
                     # Obtener todos los tipos de mantenimiento únicos
                     tipos_mtto_unicos = filtered_data['TIPO DE MTTO'].unique()
-                    tipos_ordenados = sorted(tipos_mtto_unicos)
                     
-                    # Si hay tipos específicos conocidos, podemos ordenarlos de manera específica
+                    # Ordenar los tipos de mantenimiento
                     tipos_ordenados = []
-                    for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PLANIFICADO Y PROGRAMADO', 'CORRECTIVO DE EMERGENCIA']:
+                    for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PROGRAMADO', 'CORRECTIVO DE EMERGENCIA', 'MEJORA DE SISTEMA']:
                         if tipo in tipos_mtto_unicos:
                             tipos_ordenados.append(tipo)
                     
@@ -650,16 +730,19 @@ def main():
                             # Asignar un color de la lista de colores adicionales
                             color_map_extendido[tipo] = colores_adicionales[i % len(colores_adicionales)]
                     
-                    fig = px.pie(tipo_mtto_totals, values='TR_MIN', names='TIPO DE MTTO',
-                                title='Distribución de Mantenimiento - Todos los Tipos',
-                                color='TIPO DE MTTO',
-                                color_discrete_map=color_map_extendido,
-                                category_orders={'TIPO DE MTTO': tipos_ordenados})
-                    st.plotly_chart(fig, use_container_width=True)
+                    if not tipo_mtto_totals.empty:
+                        fig = px.pie(tipo_mtto_totals, values='TR_MIN', names='TIPO DE MTTO',
+                                    title='Distribución de Mantenimiento - Todos los Tipos',
+                                    color='TIPO DE MTTO',
+                                    color_discrete_map=color_map_extendido,
+                                    category_orders={'TIPO DE MTTO': tipos_ordenados})
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de distribución de mantenimiento")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña Confiabilidad
+        # Pestaña Confiabilidad - COMPLETA
         with tab6:
             st.header("Indicadores de Confiabilidad")
             
@@ -692,6 +775,8 @@ def main():
                                     labels={'SEMANA_STR': 'Semana', 'PRODUCCION_AFECTADA': 'Fallas'})
                         fig.update_traces(marker_color=COLOR_PALETTE['pastel'][4])
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos semanales de fallas")
                 
                 with col2:
                     # MTBF por semana
@@ -704,38 +789,33 @@ def main():
                                      labels={'SEMANA_STR': 'Semana', 'MTBF_SEMANAL': 'MTBF (min)'})
                         fig.update_traces(line_color=COLOR_PALETTE['pastel'][5], mode='lines+markers')
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos semanales para calcular MTBF")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña Horas Extras
+        # Pestaña Horas Extras - COMPLETA
         with tab7:
             st.header("⏰ Análisis de Horas Extras")
             
             if not filtered_data.empty:
-                # Métrica principal de horas extras - COLOCADA A LA IZQUIERDA
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # Horas Extras Acumuladas
                     horas_extras_acumuladas = metrics.get('horas_extras_acumuladas', 0)
-                    # Convertir a horas (dividir entre 60)
                     horas_extras_acumuladas_horas = horas_extras_acumuladas / 60
                     st.metric(
                         "Horas Extras Acumuladas", 
                         f"{horas_extras_acumuladas_horas:.1f}", 
-                        "horas",
-                        help="Suma total de todas las horas extras desde el primer registro hasta el último"
+                        "horas"
                     )
                 
                 with col2:
-                    # Espacio vacío para mantener el diseño de dos columnas
                     pass
                 
-                # Gráfico de horas extras semanales
                 st.subheader("Horas Extras Semanales")
                 
                 if not weekly_extra_data.empty:
-                    # Convertir minutos a horas para el gráfico
                     weekly_extra_data_horas = weekly_extra_data.copy()
                     weekly_extra_data_horas['H_EXTRA_HORAS'] = weekly_extra_data_horas['H_EXTRA_MIN'] / 60
                     
@@ -756,7 +836,6 @@ def main():
                 # Tabla detallada de horas extras por semana
                 st.subheader("Detalle de Horas Extras por Semana")
                 if not weekly_extra_data.empty:
-                    # Crear tabla resumen
                     resumen_semanal = weekly_extra_data.copy()
                     resumen_semanal['HORAS_EXTRAS'] = resumen_semanal['H_EXTRA_MIN'] / 60
                     resumen_semanal = resumen_semanal[['SEMANA_STR', 'HORAS_EXTRAS']]
@@ -774,7 +853,6 @@ def main():
     else:
         st.info("Por favor, carga datos para comenzar.")
         
-        # Mostrar instrucciones
         st.subheader("Instrucciones:")
         st.markdown("""
         1. **Carga automática desde Google Sheets:**
@@ -783,7 +861,7 @@ def main():
         
         2. **Estructura del archivo:**
            - Los datos deben estar en una hoja llamada 'DATAMTTO'
-           - Incluir columnas como: FECHA EJECUCIÓN, EQUIPO, COMPONENTE, TIPO DE MTTO, etc.
+           - Incluir columnas como: FECHA DE INICIO, FECHA DE FIN, EQUIPO, COMPONENTE, TIPO DE MTTO, etc.
         
         3. **Actualizaciones automáticas:**
            - Los datos de Google Sheets se actualizan automáticamente cada 5 minutos
