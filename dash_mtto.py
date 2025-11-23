@@ -233,14 +233,14 @@ def get_weekly_extra_hours(df):
     return weekly_extra_data
 
 # Función para aplicar filtros
-def apply_filters(df, equipo_filter, componente_filter, ubicacion_filter, fecha_inicio, fecha_fin):
+def apply_filters(df, equipo_filter, conjunto_filter, ubicacion_filter, fecha_inicio, fecha_fin):
     filtered_df = df.copy()
     
     if equipo_filter != "Todos":
         filtered_df = filtered_df[filtered_df['EQUIPO'] == equipo_filter]
     
-    if componente_filter != "Todos":
-        filtered_df = filtered_df[filtered_df['COMPONENTE'] == componente_filter]
+    if conjunto_filter != "Todos":
+        filtered_df = filtered_df[filtered_df['CONJUNTO'] == conjunto_filter]
     
     if ubicacion_filter != "Todos":
         if 'UBICACIÓN TÉCNICA' in filtered_df.columns:
@@ -359,12 +359,12 @@ def main():
         equipos = ["Todos"] + sorted(st.session_state.data['EQUIPO'].unique().tolist())
         equipo_filter = st.sidebar.selectbox("Equipo", equipos)
         
-        # 4. FILTRO DE COMPONENTES
-        componentes = ["Todos"] + sorted(st.session_state.data['COMPONENTE'].unique().tolist())
-        componente_filter = st.sidebar.selectbox("Componente", componentes)
+        # 4. FILTRO DE CONJUNTOS
+        conjuntos = ["Todos"] + sorted(st.session_state.data['CONJUNTO'].unique().tolist())
+        conjunto_filter = st.sidebar.selectbox("Conjunto", conjuntos)
         
         # Aplicar filtros
-        filtered_data = apply_filters(st.session_state.data, equipo_filter, componente_filter, 
+        filtered_data = apply_filters(st.session_state.data, equipo_filter, conjunto_filter, 
                                       ubicacion_filter, fecha_inicio, fecha_fin)
         
         # Mostrar información de estado
@@ -502,18 +502,18 @@ def main():
                     else:
                         st.info("No hay datos de TFS por equipo")
                 
-                # TFS por componente
-                tfs_por_componente = filtered_afecta.groupby('COMPONENTE')['TFS_MIN'].sum().reset_index()
-                tfs_por_componente = tfs_por_componente.sort_values('TFS_MIN', ascending=False).head(10)
+                # TFS por conjunto
+                tfs_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TFS_MIN'].sum().reset_index()
+                tfs_por_conjunto = tfs_por_conjunto.sort_values('TFS_MIN', ascending=False).head(10)
                 
-                if not tfs_por_componente.empty:
-                    fig = px.bar(tfs_por_componente, x='COMPONENTE', y='TFS_MIN',
-                                title='TFS por Componente',
-                                labels={'COMPONENTE': 'Componente', 'TFS_MIN': 'TFS (min)'})
+                if not tfs_por_conjunto.empty:
+                    fig = px.bar(tfs_por_conjunto, x='CONJUNTO', y='TFS_MIN',
+                                title='TFS por Conjunto',
+                                labels={'CONJUNTO': 'Conjunto', 'TFS_MIN': 'TFS (min)'})
                     fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info("No hay datos de TFS por componente")
+                    st.info("No hay datos de TFS por conjunto")
                 
                 # Tablas de resumen
                 col1, col2 = st.columns(2)
@@ -528,13 +528,13 @@ def main():
                     st.dataframe(resumen_equipo, use_container_width=True)
                 
                 with col2:
-                    st.subheader("Resumen TFS por Componente")
-                    resumen_componente = filtered_afecta.groupby('COMPONENTE').agg({
+                    st.subheader("Resumen TFS por Conjunto")
+                    resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({
                         'TFS_MIN': 'sum',
                         'TR_MIN': 'sum',
                         'TFC_MIN': 'sum'
                     }).reset_index()
-                    st.dataframe(resumen_componente.head(10), use_container_width=True)
+                    st.dataframe(resumen_conjunto.head(10), use_container_width=True)
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
@@ -571,18 +571,18 @@ def main():
                     else:
                         st.info("No hay datos de TR por equipo")
                 
-                # Pareto TR por componente
-                tr_por_componente = filtered_afecta.groupby('COMPONENTE')['TR_MIN'].sum().reset_index()
-                tr_por_componente = tr_por_componente.sort_values('TR_MIN', ascending=False).head(15)
+                # Pareto TR por conjunto
+                tr_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TR_MIN'].sum().reset_index()
+                tr_por_conjunto = tr_por_conjunto.sort_values('TR_MIN', ascending=False).head(15)
                 
-                if not tr_por_componente.empty:
-                    fig = px.bar(tr_por_componente, x='COMPONENTE', y='TR_MIN',
-                                title='Pareto TR por Componente',
-                                labels={'COMPONENTE': 'Componente', 'TR_MIN': 'TR (min)'})
+                if not tr_por_conjunto.empty:
+                    fig = px.bar(tr_por_conjunto, x='CONJUNTO', y='TR_MIN',
+                                title='Pareto TR por Conjunto',
+                                labels={'CONJUNTO': 'Conjunto', 'TR_MIN': 'TR (min)'})
                     fig.update_traces(marker_color=COLOR_PALETTE['pastel'][2])
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info("No hay datos de TR por componente")
+                    st.info("No hay datos de TR por conjunto")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
@@ -619,18 +619,18 @@ def main():
                     else:
                         st.info("No hay datos de TFC por equipo")
                 
-                # Pareto TFC por componente
-                tfc_por_componente = filtered_afecta.groupby('COMPONENTE')['TFC_MIN'].sum().reset_index()
-                tfc_por_componente = tfc_por_componente.sort_values('TFC_MIN', ascending=False).head(15)
+                # Pareto TFC por conjunto
+                tfc_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TFC_MIN'].sum().reset_index()
+                tfc_por_conjunto = tfc_por_conjunto.sort_values('TFC_MIN', ascending=False).head(15)
                 
-                if not tfc_por_componente.empty:
-                    fig = px.bar(tfc_por_componente, x='COMPONENTE', y='TFC_MIN',
-                                title='Pareto TFC por Componente',
-                                labels={'COMPONENTE': 'Componente', 'TFC_MIN': 'TFC (min)'})
+                if not tfc_por_conjunto.empty:
+                    fig = px.bar(tfc_por_conjunto, x='CONJUNTO', y='TFC_MIN',
+                                title='Pareto TFC por Conjunto',
+                                labels={'CONJUNTO': 'Conjunto', 'TFC_MIN': 'TFC (min)'})
                     fig.update_traces(marker_color=COLOR_PALETTE['pastel'][3])
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info("No hay datos de TFC por componente")
+                    st.info("No hay datos de TFC por conjunto")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
@@ -861,7 +861,7 @@ def main():
         
         2. **Estructura del archivo:**
            - Los datos deben estar en una hoja llamada 'DATAMTTO'
-           - Incluir columnas como: FECHA DE INICIO, FECHA DE FIN, EQUIPO, COMPONENTE, TIPO DE MTTO, etc.
+           - Incluir columnas como: FECHA DE INICIO, FECHA DE FIN, EQUIPO, CONJUNTO, TIPO DE MTTO, etc.
         
         3. **Actualizaciones automáticas:**
            - Los datos de Google Sheets se actualizan automáticamente cada 5 minutos
