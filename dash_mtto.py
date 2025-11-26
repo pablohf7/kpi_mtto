@@ -232,19 +232,22 @@ def get_weekly_extra_hours(df):
     
     return weekly_extra_data
 
-# Función para aplicar filtros
+# Función para aplicar filtros - ACTUALIZADA
 def apply_filters(df, equipo_filter, conjunto_filter, ubicacion_filter, fecha_inicio, fecha_fin):
     filtered_df = df.copy()
     
     if equipo_filter != "Todos":
-        filtered_df = filtered_df[filtered_df['EQUIPO'] == equipo_filter]
+        # Convertir a string para comparación
+        filtered_df = filtered_df[filtered_df['EQUIPO'].astype(str) == equipo_filter]
     
     if conjunto_filter != "Todos":
-        filtered_df = filtered_df[filtered_df['CONJUNTO'] == conjunto_filter]
+        # Convertir a string para comparación
+        filtered_df = filtered_df[filtered_df['CONJUNTO'].astype(str) == conjunto_filter]
     
     if ubicacion_filter != "Todos":
         if 'UBICACIÓN TÉCNICA' in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df['UBICACIÓN TÉCNICA'] == ubicacion_filter]
+            # Convertir a string para comparación
+            filtered_df = filtered_df[filtered_df['UBICACIÓN TÉCNICA'].astype(str) == ubicacion_filter]
     
     # Aplicar filtro de fechas - USAR FECHA_DE_INICIO
     if fecha_inicio is not None and fecha_fin is not None:
@@ -349,18 +352,24 @@ def main():
         
         # 2. FILTRO DE UBICACIÓN TÉCNICA
         if 'UBICACIÓN TÉCNICA' in st.session_state.data.columns:
-            ubicaciones = ["Todos"] + sorted(st.session_state.data['UBICACIÓN TÉCNICA'].dropna().unique().tolist())
+            ubicaciones_unique = st.session_state.data['UBICACIÓN TÉCNICA'].dropna().unique().tolist()
+            ubicaciones_str = [str(x) for x in ubicaciones_unique]
+            ubicaciones = ["Todos"] + sorted(ubicaciones_str)
         else:
             ubicaciones = ["Todos"]
         
         ubicacion_filter = st.sidebar.selectbox("Ubicación Técnica", ubicaciones)
         
-        # 3. FILTRO DE EQUIPOS
-        equipos = ["Todos"] + sorted(st.session_state.data['EQUIPO'].unique().tolist())
+        # 3. FILTRO DE EQUIPOS - CORREGIDO
+        equipos_unique = st.session_state.data['EQUIPO'].unique().tolist()
+        equipos_str = [str(x) for x in equipos_unique]
+        equipos = ["Todos"] + sorted(equipos_str)
         equipo_filter = st.sidebar.selectbox("Equipo", equipos)
         
-        # 4. FILTRO DE CONJUNTOS
-        conjuntos = ["Todos"] + sorted(st.session_state.data['CONJUNTO'].unique().tolist())
+        # 4. FILTRO DE CONJUNTOS - CORREGIDO
+        conjuntos_unique = st.session_state.data['CONJUNTO'].unique().tolist()
+        conjuntos_str = [str(x) for x in conjuntos_unique]
+        conjuntos = ["Todos"] + sorted(conjuntos_str)
         conjunto_filter = st.sidebar.selectbox("Conjunto", conjuntos)
         
         # Aplicar filtros
