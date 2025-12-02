@@ -864,7 +864,7 @@ def main():
         
         # Pestaña Confiabilidad - MODIFICADA con columnas específicas
         with tab6:
-            st.header("Indicadores de Confiabilidad (Basados en Correctivos de Emergencia)")
+            st.header("Indicadores de Confiabilidad")
             
             if not filtered_data.empty:
                 # Mostrar métricas específicas para correctivos de emergencia
@@ -873,24 +873,24 @@ def main():
                     col1, col2, col3, col4, col5, col6 = st.columns(6)
                     
                     with col1:
-                        st.metric("Total Fallas (Emergencia)", f"{reliability_metrics.get('total_fallas_emergency', 0):,.0f}",
+                        st.metric("Total Fallas", f"{reliability_metrics.get('total_fallas_emergency', 0):,.0f}",
                                 help="Número total de órdenes de correctivo de emergencia")
                     
                     with col2:
-                        st.metric("Total Fallas con parada (Emergencias)", 
+                        st.metric("Total Fallas con parada", 
                                 f"{reliability_metrics.get('total_fallas_emergency_con_parada', 0):,.0f}",
                                 help="Número de órdenes de correctivo de emergencia que detuvieron producción")
                     
                     with col3:
-                        st.metric("MTBF (Emergencia)", f"{reliability_metrics.get('mtbf_emergency', 0):,.1f}", "minutos",
+                        st.metric("MTBF", f"{reliability_metrics.get('mtbf_emergency', 0):,.1f}", "minutos",
                                 help="MTBF basado en correctivos de emergencia")
                     
                     with col4:
-                        st.metric("MTTF (Emergencia)", f"{reliability_metrics.get('mttf_emergency', 0):,.1f}", "minutos",
+                        st.metric("MTTF", f"{reliability_metrics.get('mttf_emergency', 0):,.1f}", "minutos",
                                 help="MTTF basado en correctivos de emergencia")
                     
                     with col5:
-                        st.metric("MTTR (Emergencia)", f"{reliability_metrics.get('mttr_emergency', 0):,.1f}", "minutos",
+                        st.metric("MTTR", f"{reliability_metrics.get('mttr_emergency', 0):,.1f}", "minutos",
                                 help="MTTR basado en correctivos de emergencia")
                     
                     with col6:
