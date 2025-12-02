@@ -177,6 +177,59 @@ def calculate_metrics(df):
     
     return m
 
+# Función para calcular métricas de confiabilidad basadas en correctivos de emergencia
+def calculate_reliability_metrics(df):
+    if df.empty:
+        return {}
+    
+    # Filtrar solo correctivos de emergencia (independientemente de producción afectada)
+    emergency_mask = df['TIPO DE MTTO'] == 'CORRECTIVO DE EMERGENCIA'
+    df_emergency = df[emergency_mask].copy()
+    
+    if df_emergency.empty:
+        return {}
+    
+    # Calcular métricas de confiabilidad
+    m = {}
+    
+    # Tiempo Disponible (suma del tiempo estimado diario)
+    m['td'] = df['TDISPONIBLE'].sum() if 'TDISPONIBLE' in df.columns else 0
+    
+    # Calcular TR, TFC, TFS para correctivos de emergencia
+    m['tr_emergency'] = df_emergency['TR_MIN'].sum() if 'TR_MIN' in df_emergency.columns else 0
+    m['tfc_emergency'] = df_emergency['TFC_MIN'].sum() if 'TFC_MIN' in df_emergency.columns else 0
+    m['tfs_emergency'] = df_emergency['TFS_MIN'].sum() if 'TFS_MIN' in df_emergency.columns else 0
+    
+    # Total de fallas (todas las órdenes de correctivo de emergencia)
+    m['total_fallas_emergency'] = len(df_emergency)
+    
+    # Total de fallas con parada (emergencias que afectan producción)
+    m['total_fallas_emergency_con_parada'] = len(df_emergency[df_emergency['PRODUCCION_AFECTADA'] == 'SI'])
+    
+    # Calcular MTBF, MTTF, MTTR basados en correctivos de emergencia
+    if m['total_fallas_emergency'] > 0:
+        m['mtbf_emergency'] = m['td'] / m['total_fallas_emergency'] if m['td'] > 0 else 0
+        m['mttr_emergency'] = m['tr_emergency'] / m['total_fallas_emergency'] if m['total_fallas_emergency'] > 0 else 0
+        
+        # Tiempo Operativo basado en correctivos de emergencia que afectan producción
+        emergency_prod_mask = (df_emergency['PRODUCCION_AFECTADA'] == 'SI')
+        tfs_emergency_prod = df_emergency[emergency_prod_mask]['TFS_MIN'].sum() if 'TFS_MIN' in df_emergency.columns else 0
+        to_emergency = max(m['td'] - tfs_emergency_prod, 0)
+        m['mttf_emergency'] = to_emergency / m['total_fallas_emergency'] if m['total_fallas_emergency'] > 0 else 0
+    else:
+        m['mtbf_emergency'] = 0
+        m['mttr_emergency'] = 0
+        m['mttf_emergency'] = 0
+    
+    # Mantenibilidad basada en correctivos de emergencia
+    landa_emergency = m['total_fallas_emergency'] / m['td'] if m['td'] > 0 else 0
+    m['mantenibilidad_emergency'] = 1 - np.exp(-landa_emergency * m['td']) if landa_emergency > 0 else 0
+    
+    # Mantenibilidad en porcentaje
+    m['mantenibilidad_pct'] = m['mantenibilidad_emergency'] * 100
+    
+    return m
+
 # Función para obtener datos semanales
 def get_weekly_data(df):
     if df.empty or 'FECHA_DE_INICIO' not in df.columns:
@@ -231,6 +284,58 @@ def get_weekly_extra_hours(df):
     weekly_extra_data = weekly_extra_data.sort_values('SEMANA_NUM')
     
     return weekly_extra_data
+
+# Función para obtener datos semanales de correctivos de emergencia (con MTTR)
+def get_weekly_emergency_data(df):
+    if df.empty or 'FECHA_DE_INICIO' not in df.columns:
+        return pd.DataFrame()
+    
+    # Crear copia para no modificar el original
+    df_weekly = df.copy()
+    
+    # Obtener semana del año y año - USAR FECHA_DE_INICIO
+    df_weekly['SEMANA'] = df_weekly['FECHA_DE_INICIO'].dt.isocalendar().week
+    df_weekly['AÑO'] = df_weekly['FECHA_DE_INICIO'].dt.year
+    df_weekly['SEMANA_STR'] = df_weekly['AÑO'].astype(str) + '-S' + df_weekly['SEMANA'].astype(str).str.zfill(2)
+    
+    # Filtrar solo correctivos de emergencia (independientemente de producción afectada)
+    df_emergency = df_weekly[df_weekly['TIPO DE MTTO'] == 'CORRECTIVO DE EMERGENCIA'].copy()
+    
+    if df_emergency.empty:
+        return pd.DataFrame()
+    
+    # Agrupar por semana para calcular MTTR semanal
+    weekly_emergency_data = df_emergency.groupby(['SEMANA_STR', 'AÑO', 'SEMANA']).agg({
+        'TR_MIN': 'sum',
+        'TFC_MIN': 'sum',
+        'TFS_MIN': 'sum',
+        'TDISPONIBLE': 'first'  # Tomar el primer valor como referencia
+    }).reset_index()
+    
+    # Contar número de órdenes de correctivo de emergencia por semana
+    weekly_emergency_counts = df_emergency.groupby(['SEMANA_STR', 'AÑO', 'SEMANA']).size().reset_index(name='NUM_ORDENES_EMERGENCIA')
+    
+    # Contar número de órdenes de correctivo de emergencia CON PARADA por semana
+    weekly_emergency_parada_counts = df_emergency[df_emergency['PRODUCCION_AFECTADA'] == 'SI'].groupby(['SEMANA_STR', 'AÑO', 'SEMANA']).size().reset_index(name='NUM_ORDENES_EMERGENCIA_PARADA')
+    
+    # Combinar los datos
+    weekly_emergency_data = weekly_emergency_data.merge(weekly_emergency_counts, on=['SEMANA_STR', 'AÑO', 'SEMANA'], how='left')
+    weekly_emergency_data = weekly_emergency_data.merge(weekly_emergency_parada_counts, on=['SEMANA_STR', 'AÑO', 'SEMANA'], how='left')
+    
+    # Rellenar NaN con 0 para las órdenes con parada
+    weekly_emergency_data['NUM_ORDENES_EMERGENCIA_PARADA'] = weekly_emergency_data['NUM_ORDENES_EMERGENCIA_PARADA'].fillna(0)
+    
+    # Calcular MTTR semanal (Tiempo de Reparación / Número de órdenes)
+    weekly_emergency_data['MTTR_SEMANAL'] = weekly_emergency_data.apply(
+        lambda row: row['TR_MIN'] / row['NUM_ORDENES_EMERGENCIA'] if row['NUM_ORDENES_EMERGENCIA'] > 0 else 0, 
+        axis=1
+    )
+    
+    # Crear columna numérica para ordenar correctamente las semanas
+    weekly_emergency_data['SEMANA_NUM'] = weekly_emergency_data['AÑO'].astype(str) + weekly_emergency_data['SEMANA'].astype(str).str.zfill(2)
+    weekly_emergency_data = weekly_emergency_data.sort_values('SEMANA_NUM')
+    
+    return weekly_emergency_data
 
 # Función para aplicar filtros - ACTUALIZADA
 def apply_filters(df, equipo_filter, conjunto_filter, ubicacion_filter, fecha_inicio, fecha_fin):
@@ -413,6 +518,12 @@ def main():
         metrics = calculate_metrics(filtered_data)
         weekly_data = get_weekly_data(filtered_data)
         weekly_extra_data = get_weekly_extra_hours(filtered_data)
+        
+        # Calcular métricas de confiabilidad específicas para correctivos de emergencia
+        reliability_metrics = calculate_reliability_metrics(filtered_data)
+        
+        # Obtener datos semanales de correctivos de emergencia
+        weekly_emergency_data = get_weekly_emergency_data(filtered_data)
         
         # Pestaña Planta - CORREGIDA
         with tab1:
@@ -751,55 +862,124 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña Confiabilidad - COMPLETA
+        # Pestaña Confiabilidad - MODIFICADA con columnas específicas
         with tab6:
-            st.header("Indicadores de Confiabilidad")
+            st.header("Indicadores de Confiabilidad (Basados en Correctivos de Emergencia)")
             
             if not filtered_data.empty:
-                col1, col2, col3, col4, col5 = st.columns(5)
-                
-                with col1:
-                    st.metric("Total Fallas", f"{metrics.get('total_fallas', 0):,.0f}")
-                
-                with col2:
-                    st.metric("MTBF", f"{metrics.get('mtbf', 0):,.1f}", "minutos")
-                
-                with col3:
-                    st.metric("MTTF", f"{metrics.get('mttf', 0):,.1f}", "minutos")
-                
-                with col4:
-                    st.metric("MTTR", f"{metrics.get('mttr', 0):,.1f}", "minutos")
-                
-                with col5:
-                    st.metric("Mantenibilidad", f"{metrics.get('mantenibilidad', 0)*100:.1f}%")
+                # Mostrar métricas específicas para correctivos de emergencia
+                if reliability_metrics:
+                    # Usamos 6 columnas para incluir el nuevo indicador
+                    col1, col2, col3, col4, col5, col6 = st.columns(6)
+                    
+                    with col1:
+                        st.metric("Total Fallas (Emergencia)", f"{reliability_metrics.get('total_fallas_emergency', 0):,.0f}",
+                                help="Número total de órdenes de correctivo de emergencia")
+                    
+                    with col2:
+                        st.metric("Total Fallas con parada (Emergencias)", 
+                                f"{reliability_metrics.get('total_fallas_emergency_con_parada', 0):,.0f}",
+                                help="Número de órdenes de correctivo de emergencia que detuvieron producción")
+                    
+                    with col3:
+                        st.metric("MTBF (Emergencia)", f"{reliability_metrics.get('mtbf_emergency', 0):,.1f}", "minutos",
+                                help="MTBF basado en correctivos de emergencia")
+                    
+                    with col4:
+                        st.metric("MTTF (Emergencia)", f"{reliability_metrics.get('mttf_emergency', 0):,.1f}", "minutos",
+                                help="MTTF basado en correctivos de emergencia")
+                    
+                    with col5:
+                        st.metric("MTTR (Emergencia)", f"{reliability_metrics.get('mttr_emergency', 0):,.1f}", "minutos",
+                                help="MTTR basado en correctivos de emergencia")
+                    
+                    with col6:
+                        mantenibilidad_pct = reliability_metrics.get('mantenibilidad_pct', 0)
+                        st.metric("Mantenibilidad", f"{mantenibilidad_pct:.1f}%",
+                                help="Mantenibilidad basada en correctivos de emergencia")
+                else:
+                    st.info("No hay datos de correctivos de emergencia para calcular las métricas")
                 
                 # Gráficos
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # Total de fallas por semana
-                    if not weekly_data.empty:
-                        fig = px.bar(weekly_data, x='SEMANA_STR', y='PRODUCCION_AFECTADA',
-                                    title='Total de Fallas por Semana',
-                                    labels={'SEMANA_STR': 'Semana', 'PRODUCCION_AFECTADA': 'Fallas'})
-                        fig.update_traces(marker_color=COLOR_PALETTE['pastel'][4])
+                    # Total de fallas por semana (correctivos de emergencia)
+                    if not weekly_emergency_data.empty:
+                        # Crear gradiente de rojos: más fallas = rojo más oscuro, menos fallas = rojo más claro
+                        fig = px.bar(weekly_emergency_data, x='SEMANA_STR', y='NUM_ORDENES_EMERGENCIA',
+                                    title='Total de Fallas por Semana (Correctivos de Emergencia)',
+                                    labels={'SEMANA_STR': 'Semana', 'NUM_ORDENES_EMERGENCIA': 'N° de Órdenes de Emergencia'},
+                                    color='NUM_ORDENES_EMERGENCIA',
+                                    color_continuous_scale='Reds')
+                        fig.update_layout(showlegend=False)
                         st.plotly_chart(fig, use_container_width=True)
                     else:
-                        st.info("No hay datos semanales de fallas")
+                        st.info("No hay datos semanales de correctivos de emergencia")
                 
                 with col2:
-                    # MTBF por semana
-                    if not weekly_data.empty:
-                        weekly_data['MTBF_SEMANAL'] = weekly_data['TDISPONIBLE'] / weekly_data['PRODUCCION_AFECTADA']
-                        weekly_data['MTBF_SEMANAL'] = weekly_data['MTBF_SEMANAL'].replace([np.inf, -np.inf], 0)
-                        
-                        fig = px.line(weekly_data, x='SEMANA_STR', y='MTBF_SEMANAL',
-                                     title='MTBF por Semana',
-                                     labels={'SEMANA_STR': 'Semana', 'MTBF_SEMANAL': 'MTBF (min)'})
-                        fig.update_traces(line_color=COLOR_PALETTE['pastel'][5], mode='lines+markers')
+                    # MTTR por semana (reemplaza Mantenibilidad por Semana)
+                    if not weekly_emergency_data.empty:
+                        fig = px.line(weekly_emergency_data, x='SEMANA_STR', y='MTTR_SEMANAL',
+                                     title='MTTR por Semana (Correctivos de Emergencia)',
+                                     labels={'SEMANA_STR': 'Semana', 'MTTR_SEMANAL': 'MTTR (min)'},
+                                     markers=True)
+                        fig.update_traces(line_color='#FFA500', mode='lines+markers', line_width=3)
                         st.plotly_chart(fig, use_container_width=True)
                     else:
-                        st.info("No hay datos semanales para calcular MTBF")
+                        st.info("No hay datos semanales para calcular MTTR")
+                
+                # Información adicional - Distribución por Equipo y Conjunto (Top 10) CON RANKING Y COLUMNAS ESPECÍFICAS
+                st.subheader("Distribución de Correctivos de Emergencia")
+                
+                # Filtrar correctivos de emergencia
+                emergency_data = filtered_data[filtered_data['TIPO DE MTTO'] == 'CORRECTIVO DE EMERGENCIA']
+                
+                if not emergency_data.empty:
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write("**Distribución por Equipo (Top 10)**")
+                        # Agrupar por equipo y contar
+                        emergencia_por_equipo = emergency_data.groupby('EQUIPO').size().reset_index(name='CANTIDAD')
+                        # Ordenar por cantidad descendente
+                        emergencia_por_equipo = emergencia_por_equipo.sort_values('CANTIDAD', ascending=False).head(10)
+                        # Agregar columna de ranking (lugar)
+                        emergencia_por_equipo = emergencia_por_equipo.reset_index(drop=True)
+                        emergencia_por_equipo.insert(0, 'LUGAR', range(1, len(emergencia_por_equipo) + 1))
+                        # Formatear la columna LUGAR
+                        emergencia_por_equipo['LUGAR'] = emergencia_por_equipo['LUGAR'].astype(str) + '°'
+                        # Renombrar columnas según especificación
+                        emergencia_por_equipo = emergencia_por_equipo.rename(columns={
+                            'EQUIPO': 'EQUIPO',
+                            'CANTIDAD': 'CANTIDAD DE FALLA'
+                        })
+                        # Seleccionar solo las columnas requeridas
+                        emergencia_por_equipo = emergencia_por_equipo[['LUGAR', 'EQUIPO', 'CANTIDAD DE FALLA']]
+                        st.dataframe(emergencia_por_equipo, use_container_width=True)
+                    
+                    with col2:
+                        st.write("**Distribución por Conjunto (Top 10)**")
+                        # Agrupar por conjunto y contar
+                        emergencia_por_conjunto = emergency_data.groupby('CONJUNTO').size().reset_index(name='CANTIDAD')
+                        # Ordenar por cantidad descendente
+                        emergencia_por_conjunto = emergencia_por_conjunto.sort_values('CANTIDAD', ascending=False).head(10)
+                        # Agregar columna de ranking (lugar)
+                        emergencia_por_conjunto = emergencia_por_conjunto.reset_index(drop=True)
+                        emergencia_por_conjunto.insert(0, 'LUGAR', range(1, len(emergencia_por_conjunto) + 1))
+                        # Formatear la columna LUGAR
+                        emergencia_por_conjunto['LUGAR'] = emergencia_por_conjunto['LUGAR'].astype(str) + '°'
+                        # Renombrar columnas según especificación
+                        emergencia_por_conjunto = emergencia_por_conjunto.rename(columns={
+                            'CONJUNTO': 'CONJUNTO',
+                            'CANTIDAD': 'CANTIDAD DE FALLA'
+                        })
+                        # Seleccionar solo las columnas requeridas
+                        emergencia_por_conjunto = emergencia_por_conjunto[['LUGAR', 'CONJUNTO', 'CANTIDAD DE FALLA']]
+                        st.dataframe(emergencia_por_conjunto, use_container_width=True)
+                else:
+                    st.info("No hay registros de correctivos de emergencia en el período seleccionado")
+                
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
