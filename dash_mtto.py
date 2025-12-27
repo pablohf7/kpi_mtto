@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 # Configuración de la página - BARRA LATERAL RECOGIDA POR DEFECTO
 st.set_page_config(
-    page_title="Dashboard de Indicadores de Mantenimiento",
+    page_title="Dashboard de Indicadores de Mantenimiento Mecánico Fortidex",
     page_icon="🔧",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -261,9 +261,9 @@ def get_weekly_data(df):
     
     return weekly_data
 
-# Función para obtener datos semanales de horas extras
-def get_weekly_extra_hours(df):
-    if df.empty or 'FECHA_DE_INICIO' not in df.columns:
+# Función para obtener datos semanales por técnico (TR_MIN y H_EXTRA_MIN)
+def get_weekly_technician_hours(df):
+    if df.empty or 'FECHA_DE_INICIO' not in df.columns or 'RESPONSABLE' not in df.columns:
         return pd.DataFrame()
     
     # Crear copia para no modificar el original
@@ -274,16 +274,41 @@ def get_weekly_extra_hours(df):
     df_weekly['AÑO'] = df_weekly['FECHA_DE_INICIO'].dt.year
     df_weekly['SEMANA_STR'] = df_weekly['AÑO'].astype(str) + '-S' + df_weekly['SEMANA'].astype(str).str.zfill(2)
     
-    # Agrupar por semana - TODOS LOS REGISTROS
-    weekly_extra_data = df_weekly.groupby(['SEMANA_STR', 'AÑO', 'SEMANA']).agg({
+    # Agrupar por semana y técnico - TODOS LOS REGISTROS
+    weekly_tech_data = df_weekly.groupby(['SEMANA_STR', 'AÑO', 'SEMANA', 'RESPONSABLE']).agg({
+        'TR_MIN': 'sum',
         'H_EXTRA_MIN': 'sum'
     }).reset_index()
     
-    # Crear columna numérica para ordenar correctamente las semanas
-    weekly_extra_data['SEMANA_NUM'] = weekly_extra_data['AÑO'].astype(str) + weekly_extra_data['SEMANA'].astype(str).str.zfill(2)
-    weekly_extra_data = weekly_extra_data.sort_values('SEMANA_NUM')
+    # Convertir minutos a horas
+    weekly_tech_data['TR_HORAS'] = weekly_tech_data['TR_MIN'] / 60
+    weekly_tech_data['H_EXTRA_HORAS'] = weekly_tech_data['H_EXTRA_MIN'] / 60
     
-    return weekly_extra_data
+    # Crear columna numérica para ordenar correctamente las semanas
+    weekly_tech_data['SEMANA_NUM'] = weekly_tech_data['AÑO'].astype(str) + weekly_tech_data['SEMANA'].astype(str).str.zfill(2)
+    weekly_tech_data = weekly_tech_data.sort_values('SEMANA_NUM')
+    
+    return weekly_tech_data
+
+# Función para obtener datos acumulados por técnico
+def get_accumulated_technician_hours(df):
+    if df.empty or 'RESPONSABLE' not in df.columns:
+        return pd.DataFrame()
+    
+    # Agrupar por técnico
+    tech_data = df.groupby('RESPONSABLE').agg({
+        'TR_MIN': 'sum',
+        'H_EXTRA_MIN': 'sum'
+    }).reset_index()
+    
+    # Convertir minutos a horas
+    tech_data['TR_HORAS'] = tech_data['TR_MIN'] / 60
+    tech_data['H_EXTRA_HORAS'] = tech_data['H_EXTRA_MIN'] / 60
+    
+    # Ordenar por horas normales (descendente)
+    tech_data = tech_data.sort_values('TR_HORAS', ascending=False)
+    
+    return tech_data
 
 # Función para obtener datos semanales de correctivos de emergencia (con MTTR)
 def get_weekly_emergency_data(df):
@@ -511,19 +536,24 @@ def main():
         </style>
         """, unsafe_allow_html=True)
         
-        # Pestañas
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Planta", "TFS", "TR", "TFC", "Tipo de Mtto", "Confiabilidad", "Horas Extras"])
+        # Pestañas - MODIFICADO: cambiar nombre de la última pestaña
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Planta", "TFS", "TR", "TFC", "Tipo de Mtto", "Confiabilidad", "Horas Personal Técnico"])
         
         # Calcular métricas
         metrics = calculate_metrics(filtered_data)
         weekly_data = get_weekly_data(filtered_data)
-        weekly_extra_data = get_weekly_extra_hours(filtered_data)
         
         # Calcular métricas de confiabilidad específicas para correctivos de emergencia
         reliability_metrics = calculate_reliability_metrics(filtered_data)
         
         # Obtener datos semanales de correctivos de emergencia
         weekly_emergency_data = get_weekly_emergency_data(filtered_data)
+        
+        # Obtener datos semanales por técnico
+        weekly_tech_data = get_weekly_technician_hours(filtered_data)
+        
+        # Obtener datos acumulados por técnico
+        accumulated_tech_data = get_accumulated_technician_hours(filtered_data)
         
         # Pestaña Planta - CORREGIDA
         with tab1:
@@ -983,61 +1013,155 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña Horas Extras - COMPLETA
+        # Pestaña Horas Personal Técnico - MODIFICADA COMPLETAMENTE (CORREGIDA)
         with tab7:
-            st.header("⏰ Análisis de Horas Extras")
+            st.header("👷 Análisis de Horas del Personal Técnico")
             
             if not filtered_data.empty:
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    horas_extras_acumuladas = metrics.get('horas_extras_acumuladas', 0)
-                    horas_extras_acumuladas_horas = horas_extras_acumuladas / 60
-                    st.metric(
-                        "Horas Extras Acumuladas", 
-                        f"{horas_extras_acumuladas_horas:.1f}", 
-                        "horas"
-                    )
-                
-                with col2:
-                    pass
-                
-                st.subheader("Horas Extras Semanales")
-                
-                if not weekly_extra_data.empty:
-                    weekly_extra_data_horas = weekly_extra_data.copy()
-                    weekly_extra_data_horas['H_EXTRA_HORAS'] = weekly_extra_data_horas['H_EXTRA_MIN'] / 60
+                # Verificar si existe la columna RESPONSABLE
+                if 'RESPONSABLE' not in filtered_data.columns:
+                    st.warning("⚠️ La columna 'RESPONSABLE' no está presente en los datos.")
+                    st.info("Para ver el análisis de horas por técnico, asegúrate de que tu dataset incluya la columna 'RESPONSABLE'.")
+                else:
+                    # Filtrar datos que tengan responsable
+                    data_with_responsible = filtered_data[filtered_data['RESPONSABLE'].notna()]
                     
-                    fig = px.bar(
-                        weekly_extra_data_horas, 
-                        x='SEMANA_STR', 
-                        y='H_EXTRA_HORAS',
-                        title='Horas Extras por Semana',
-                        labels={'SEMANA_STR': 'Semana', 'H_EXTRA_HORAS': 'Horas Extras'},
-                        color='H_EXTRA_HORAS',
-                        color_continuous_scale='Viridis'
-                    )
-                    fig.update_layout(showlegend=False)
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("No hay datos de horas extras para mostrar")
-                
-                # Tabla detallada de horas extras por semana
-                st.subheader("Detalle de Horas Extras por Semana")
-                if not weekly_extra_data.empty:
-                    resumen_semanal = weekly_extra_data.copy()
-                    resumen_semanal['HORAS_EXTRAS'] = resumen_semanal['H_EXTRA_MIN'] / 60
-                    resumen_semanal = resumen_semanal[['SEMANA_STR', 'HORAS_EXTRAS']]
-                    resumen_semanal = resumen_semanal.rename(columns={
-                        'SEMANA_STR': 'Semana',
-                        'HORAS_EXTRAS': 'Horas Extras'
-                    })
-                    st.dataframe(resumen_semanal, use_container_width=True)
-                else:
-                    st.info("No hay datos detallados de horas extras para mostrar")
-                
+                    if data_with_responsible.empty:
+                        st.info("No hay datos con responsable asignado para mostrar.")
+                    else:
+                        # Obtener datos semanales por técnico
+                        if not weekly_tech_data.empty:
+                            # Filtrar datos con responsable
+                            weekly_tech_responsible = weekly_tech_data[weekly_tech_data['RESPONSABLE'].notna()]
+                            
+                            if not weekly_tech_responsible.empty:
+                                # Crear paleta de colores para técnicos
+                                tecnicos_unicos = weekly_tech_responsible['RESPONSABLE'].unique()
+                                colores_tecnicos = {}
+                                
+                                # Paleta de colores para técnicos (usando colores pastel)
+                                colores_disponibles = COLOR_PALETTE['pastel'] + ['#FFA07A', '#20B2AA', '#778899', '#B0C4DE', '#FFB6C1', '#98FB98', '#DDA0DD', '#FFE4B5']
+                                
+                                for i, tecnico in enumerate(tecnicos_unicos):
+                                    colores_tecnicos[tecnico] = colores_disponibles[i % len(colores_disponibles)]
+                                
+                                # --- SECCIÓN 1: HORAS NORMALES (TR_MIN) ---
+                                st.subheader("📊 Horas Normales por Técnico")
+                                
+                                # Gráfico 1: Barras apiladas semanales de horas normales
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    # Ordenar semanas
+                                    semanas_ordenadas = sorted(weekly_tech_responsible['SEMANA_STR'].unique())
+                                    
+                                    fig = px.bar(weekly_tech_responsible, 
+                                                x='SEMANA_STR', 
+                                                y='TR_HORAS',
+                                                color='RESPONSABLE',
+                                                title='Horas Normales por Semana (por Técnico)',
+                                                labels={'SEMANA_STR': 'Semana', 'TR_HORAS': 'Horas Normales', 'RESPONSABLE': 'Técnico'},
+                                                color_discrete_map=colores_tecnicos,
+                                                category_orders={'SEMANA_STR': semanas_ordenadas})
+                                    fig.update_layout(barmode='stack')
+                                    st.plotly_chart(fig, use_container_width=True)
+                                
+                                with col2:
+                                    # Gráfico de torta: Horas normales acumuladas por técnico
+                                    horas_normales_acumuladas = data_with_responsible.groupby('RESPONSABLE')['TR_MIN'].sum().reset_index()
+                                    horas_normales_acumuladas['TR_HORAS'] = horas_normales_acumuladas['TR_MIN'] / 60
+                                    horas_normales_acumuladas = horas_normales_acumuladas.sort_values('TR_HORAS', ascending=False)
+                                    
+                                    if not horas_normales_acumuladas.empty:
+                                        # Formatear etiquetas para mostrar técnico y horas
+                                        horas_normales_acumuladas['LABEL'] = horas_normales_acumuladas.apply(
+                                            lambda x: f"{x['RESPONSABLE']}: {x['TR_HORAS']:.1f} horas", axis=1
+                                        )
+                                        
+                                        fig = px.pie(horas_normales_acumuladas, 
+                                                    values='TR_HORAS', 
+                                                    names='LABEL',
+                                                    title='Distribución de Horas Normales Acumuladas',
+                                                    color='RESPONSABLE',
+                                                    color_discrete_map=colores_tecnicos)
+                                        
+                                        # Actualizar el hovertemplate para mostrar información adicional
+                                        fig.update_traces(
+                                            textposition='inside', 
+                                            textinfo='percent+label',
+                                            hovertemplate='<b>%{label}</b><br>' +
+                                                        'Horas: %{value:.1f}<br>' +
+                                                        'Porcentaje: %{percent}<extra></extra>'
+                                        )
+                                        st.plotly_chart(fig, use_container_width=True)
+                                    else:
+                                        st.info("No hay datos de horas normales acumuladas para mostrar.")
+                                
+                                # --- SECCIÓN 2: HORAS EXTRAS (H_EXTRA_MIN) ---
+                                st.subheader("⏰ Horas Extras por Técnico")
+                                
+                                # Filtrar datos con responsable y que tengan horas extras
+                                weekly_tech_extras = weekly_tech_responsible[weekly_tech_responsible['H_EXTRA_HORAS'] > 0]
+                                
+                                if not weekly_tech_extras.empty:
+                                    # Usar la misma paleta de colores que en la sección anterior
+                                    # Gráfico 3: Barras apiladas semanales de horas extras
+                                    col1, col2 = st.columns(2)
+                                    
+                                    with col1:
+                                        # Ordenar semanas
+                                        semanas_ordenadas = sorted(weekly_tech_extras['SEMANA_STR'].unique())
+                                        
+                                        fig = px.bar(weekly_tech_extras, 
+                                                    x='SEMANA_STR', 
+                                                    y='H_EXTRA_HORAS',
+                                                    color='RESPONSABLE',
+                                                    title='Horas Extras por Semana (por Técnico)',
+                                                    labels={'SEMANA_STR': 'Semana', 'H_EXTRA_HORAS': 'Horas Extras', 'RESPONSABLE': 'Técnico'},
+                                                    color_discrete_map=colores_tecnicos,
+                                                    category_orders={'SEMANA_STR': semanas_ordenadas})
+                                        fig.update_layout(barmode='stack')
+                                        st.plotly_chart(fig, use_container_width=True)
+                                    
+                                    with col2:
+                                        # Gráfico de torta: Horas extras acumuladas por técnico
+                                        horas_extras_acumuladas = data_with_responsible.groupby('RESPONSABLE')['H_EXTRA_MIN'].sum().reset_index()
+                                        horas_extras_acumuladas['H_EXTRA_HORAS'] = horas_extras_acumuladas['H_EXTRA_MIN'] / 60
+                                        horas_extras_acumuladas = horas_extras_acumuladas[horas_extras_acumuladas['H_EXTRA_HORAS'] > 0]
+                                        horas_extras_acumuladas = horas_extras_acumuladas.sort_values('H_EXTRA_HORAS', ascending=False)
+                                        
+                                        if not horas_extras_acumuladas.empty:
+                                            # Formatear etiquetas para mostrar técnico y horas
+                                            horas_extras_acumuladas['LABEL'] = horas_extras_acumuladas.apply(
+                                                lambda x: f"{x['RESPONSABLE']}: {x['H_EXTRA_HORAS']:.1f} horas", axis=1
+                                            )
+                                            
+                                            fig = px.pie(horas_extras_acumuladas, 
+                                                        values='H_EXTRA_HORAS', 
+                                                        names='LABEL',
+                                                        title='Distribución de Horas Extras Acumuladas',
+                                                        color='RESPONSABLE',
+                                                        color_discrete_map=colores_tecnicos)
+                                            
+                                            # Actualizar el hovertemplate para mostrar información adicional
+                                            fig.update_traces(
+                                                textposition='inside', 
+                                                textinfo='percent+label',
+                                                hovertemplate='<b>%{label}</b><br>' +
+                                                            'Horas Extras: %{value:.1f}<br>' +
+                                                            'Porcentaje: %{percent}<extra></extra>'
+                                            )
+                                            st.plotly_chart(fig, use_container_width=True)
+                                        else:
+                                            st.info("No hay datos de horas extras acumuladas para mostrar.")
+                                else:
+                                    st.info("No hay datos de horas extras por técnico para mostrar.")
+                            else:
+                                st.info("No hay datos semanales de horas por técnico para mostrar.")
+                        else:
+                            st.info("No hay datos semanales por técnico para mostrar.")
             else:
-                st.info("No hay datos para mostrar con los filtros seleccionados")
+                st.info("No hay datos para mostrar con los filtros seleccionados.")
     
     else:
         st.info("Por favor, carga datos para comenzar.")
@@ -1050,7 +1174,7 @@ def main():
         
         2. **Estructura del archivo:**
            - Los datos deben estar en una hoja llamada 'DATAMTTO'
-           - Incluir columnas como: FECHA DE INICIO, FECHA DE FIN, EQUIPO, CONJUNTO, TIPO DE MTTO, etc.
+           - Incluir columnas como: FECHA DE INICIO, FECHA DE FIN, EQUIPO, CONJUNTO, TIPO DE MTTO, RESPONSABLE, etc.
         
         3. **Actualizaciones automáticas:**
            - Los datos de Google Sheets se actualizan automáticamente cada 5 minutos
