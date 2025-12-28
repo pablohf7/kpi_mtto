@@ -84,11 +84,34 @@ def clean_and_prepare_data(df):
         'HORA DE ARRANQUE': 'HORA_ARRANQUE'
     })
     
-    # Manejar la columna de ubicación técnica
-    if 'UBICACIÓN TÉCNICA' not in df_clean.columns and 'UBICACION TECNICA' in df_clean.columns:
+    # REEMPLAZO DE COLUMNAS ORIGINALES POR COLUMNAS "NOMBRE" PARA CÁLCULOS
+    # Mantener los nombres originales para visualización
+    
+    # 1. UBICACIÓN TÉCNICA
+    if 'UBICACIÓN TÉCNICA NOMBRE' in df_clean.columns:
+        # Reemplazar valores de UBICACIÓN TÉCNICA con UBICACIÓN TÉCNICA NOMBRE para cálculos
+        df_clean['UBICACIÓN TÉCNICA'] = df_clean['UBICACIÓN TÉCNICA NOMBRE']
+    
+    # Manejar la columna de ubicación técnica si no existe
+    elif 'UBICACIÓN TÉCNICA' not in df_clean.columns and 'UBICACION TECNICA' in df_clean.columns:
         df_clean = df_clean.rename(columns={'UBICACION TECNICA': 'UBICACIÓN TÉCNICA'})
     elif 'UBICACIÓN TÉCNICA' not in df_clean.columns and 'Ubicación Técnica' in df_clean.columns:
         df_clean = df_clean.rename(columns={'Ubicación Técnica': 'UBICACIÓN TÉCNICA'})
+    
+    # 2. EQUIPO
+    if 'EQUIPO NOMBRE' in df_clean.columns:
+        # Reemplazar valores de EQUIPO con EQUIPO NOMBRE para cálculos
+        df_clean['EQUIPO'] = df_clean['EQUIPO NOMBRE']
+    
+    # 3. CONJUNTO
+    if 'CONJUNTO NOMBRE' in df_clean.columns:
+        # Reemplazar valores de CONJUNTO con CONJUNTO NOMBRE para cálculos
+        df_clean['CONJUNTO'] = df_clean['CONJUNTO NOMBRE']
+    
+    # 4. RESPONSABLE
+    if 'RESPONSABLE NOMBRE' in df_clean.columns:
+        # Reemplazar valores de RESPONSABLE con RESPONSABLE NOMBRE para cálculos
+        df_clean['RESPONSABLE'] = df_clean['RESPONSABLE NOMBRE']
     
     # Convertir fechas
     df_clean['FECHA_DE_INICIO'] = pd.to_datetime(df_clean['FECHA_DE_INICIO'])
@@ -490,13 +513,13 @@ def main():
         
         ubicacion_filter = st.sidebar.selectbox("Ubicación Técnica", ubicaciones)
         
-        # 3. FILTRO DE EQUIPOS - CORREGIDO
+        # 3. FILTRO DE EQUIPOS - CORREGIDO (ahora usando valores de EQUIPO NOMBRE)
         equipos_unique = st.session_state.data['EQUIPO'].unique().tolist()
         equipos_str = [str(x) for x in equipos_unique]
         equipos = ["Todos"] + sorted(equipos_str)
         equipo_filter = st.sidebar.selectbox("Equipo", equipos)
         
-        # 4. FILTRO DE CONJUNTOS - CORREGIDO
+        # 4. FILTRO DE CONJUNTOS - CORREGIDO (ahora usando valores de CONJUNTO NOMBRE)
         conjuntos_unique = st.session_state.data['CONJUNTO'].unique().tolist()
         conjuntos_str = [str(x) for x in conjuntos_unique]
         conjuntos = ["Todos"] + sorted(conjuntos_str)
@@ -619,7 +642,7 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña TFS - COMPLETA
+        # Pestaña TFS - COMPLETA CON UBICACIÓN TÉCNICA
         with tab2:
             st.header("Análisis de TFS")
             
@@ -665,11 +688,26 @@ def main():
                 else:
                     st.info("No hay datos de TFS por conjunto")
                 
-                # Tablas de resumen
-                col1, col2 = st.columns(2)
+                # TFS por Ubicación Técnica (NUEVO)
+                if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
+                    tfs_por_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA')['TFS_MIN'].sum().reset_index()
+                    tfs_por_ubicacion = tfs_por_ubicacion.sort_values('TFS_MIN', ascending=False).head(10)
+                    
+                    if not tfs_por_ubicacion.empty:
+                        fig = px.bar(tfs_por_ubicacion, x='UBICACIÓN TÉCNICA', y='TFS_MIN',
+                                    title='TFS por Ubicación Técnica',
+                                    labels={'UBICACIÓN TÉCNICA': 'Ubicación Técnica', 'TFS_MIN': 'TFS (min)'})
+                        fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de TFS por ubicación técnica")
+                
+                # Tablas de resumen - AHORA CON 3 COLUMNAS
+                st.subheader("Resúmenes TFS")
+                col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    st.subheader("Resumen TFS por Equipo")
+                    st.write("**Resumen TFS por Equipo**")
                     resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({
                         'TFS_MIN': 'sum',
                         'TR_MIN': 'sum',
@@ -678,17 +716,29 @@ def main():
                     st.dataframe(resumen_equipo, use_container_width=True)
                 
                 with col2:
-                    st.subheader("Resumen TFS por Conjunto")
+                    st.write("**Resumen TFS por Conjunto**")
                     resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({
                         'TFS_MIN': 'sum',
                         'TR_MIN': 'sum',
                         'TFC_MIN': 'sum'
                     }).reset_index()
                     st.dataframe(resumen_conjunto.head(10), use_container_width=True)
+                
+                with col3:
+                    st.write("**Resumen TFS por Ubicación Técnica**")
+                    if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
+                        resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({
+                            'TFS_MIN': 'sum',
+                            'TR_MIN': 'sum',
+                            'TFC_MIN': 'sum'
+                        }).reset_index()
+                        st.dataframe(resumen_ubicacion.head(10), use_container_width=True)
+                    else:
+                        st.info("No hay datos de ubicación técnica")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña TR - COMPLETA
+        # Pestaña TR - COMPLETA CON UBICACIÓN TÉCNICA
         with tab3:
             st.header("Análisis de TR")
             
@@ -733,10 +783,58 @@ def main():
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.info("No hay datos de TR por conjunto")
+                
+                # TR por Ubicación Técnica (NUEVO)
+                if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
+                    tr_por_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA')['TR_MIN'].sum().reset_index()
+                    tr_por_ubicacion = tr_por_ubicacion.sort_values('TR_MIN', ascending=False).head(10)
+                    
+                    if not tr_por_ubicacion.empty:
+                        fig = px.bar(tr_por_ubicacion, x='UBICACIÓN TÉCNICA', y='TR_MIN',
+                                    title='TR por Ubicación Técnica',
+                                    labels={'UBICACIÓN TÉCNICA': 'Ubicación Técnica', 'TR_MIN': 'TR (min)'})
+                        fig.update_traces(marker_color=COLOR_PALETTE['pastel'][2])
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de TR por ubicación técnica")
+                
+                # Tablas de resumen - AHORA CON 3 COLUMNAS
+                st.subheader("Resúmenes TR")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write("**Resumen TR por Equipo**")
+                    resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({
+                        'TFS_MIN': 'sum',
+                        'TR_MIN': 'sum',
+                        'TFC_MIN': 'sum'
+                    }).reset_index()
+                    st.dataframe(resumen_equipo, use_container_width=True)
+                
+                with col2:
+                    st.write("**Resumen TR por Conjunto**")
+                    resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({
+                        'TFS_MIN': 'sum',
+                        'TR_MIN': 'sum',
+                        'TFC_MIN': 'sum'
+                    }).reset_index()
+                    st.dataframe(resumen_conjunto.head(10), use_container_width=True)
+                
+                with col3:
+                    st.write("**Resumen TR por Ubicación Técnica**")
+                    if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
+                        resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({
+                            'TFS_MIN': 'sum',
+                            'TR_MIN': 'sum',
+                            'TFC_MIN': 'sum'
+                        }).reset_index()
+                        st.dataframe(resumen_ubicacion.head(10), use_container_width=True)
+                    else:
+                        st.info("No hay datos de ubicación técnica")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña TFC - COMPLETA
+        # Pestaña TFC - COMPLETA CON UBICACIÓN TÉCNICA
         with tab4:
             st.header("Análisis de TFC")
             
@@ -781,6 +879,54 @@ def main():
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.info("No hay datos de TFC por conjunto")
+                
+                # TFC por Ubicación Técnica (NUEVO)
+                if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
+                    tfc_por_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA')['TFC_MIN'].sum().reset_index()
+                    tfc_por_ubicacion = tfc_por_ubicacion.sort_values('TFC_MIN', ascending=False).head(10)
+                    
+                    if not tfc_por_ubicacion.empty:
+                        fig = px.bar(tfc_por_ubicacion, x='UBICACIÓN TÉCNICA', y='TFC_MIN',
+                                    title='TFC por Ubicación Técnica',
+                                    labels={'UBICACIÓN TÉCNICA': 'Ubicación Técnica', 'TFC_MIN': 'TFC (min)'})
+                        fig.update_traces(marker_color=COLOR_PALETTE['pastel'][3])
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de TFC por ubicación técnica")
+                
+                # Tablas de resumen - AHORA CON 3 COLUMNAS
+                st.subheader("Resúmenes TFC")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write("**Resumen TFC por Equipo**")
+                    resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({
+                        'TFS_MIN': 'sum',
+                        'TR_MIN': 'sum',
+                        'TFC_MIN': 'sum'
+                    }).reset_index()
+                    st.dataframe(resumen_equipo, use_container_width=True)
+                
+                with col2:
+                    st.write("**Resumen TFC por Conjunto**")
+                    resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({
+                        'TFS_MIN': 'sum',
+                        'TR_MIN': 'sum',
+                        'TFC_MIN': 'sum'
+                    }).reset_index()
+                    st.dataframe(resumen_conjunto.head(10), use_container_width=True)
+                
+                with col3:
+                    st.write("**Resumen TFC por Ubicación Técnica**")
+                    if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
+                        resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({
+                            'TFS_MIN': 'sum',
+                            'TR_MIN': 'sum',
+                            'TFC_MIN': 'sum'
+                        }).reset_index()
+                        st.dataframe(resumen_ubicacion.head(10), use_container_width=True)
+                    else:
+                        st.info("No hay datos de ubicación técnica")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
