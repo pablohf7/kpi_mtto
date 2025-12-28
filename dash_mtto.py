@@ -7,6 +7,7 @@ from plotly.subplots import make_subplots
 import io
 import base64
 from datetime import datetime, timedelta
+import re
 
 # Configuración de la página - BARRA LATERAL RECOGIDA POR DEFECTO
 st.set_page_config(
@@ -27,6 +28,433 @@ COLOR_PALETTE = {
         'MEJORA DE SISTEMA': '#32CD32'
     }
 }
+
+# Función para separar múltiples técnicos en el campo RESPONSABLE - MODIFICADA
+def separar_tecnicos(df):
+    """Separa múltiples técnicos en una sola celda y crea filas individuales
+    CON HORAS COMPLETAS PARA CADA TÉCNICO"""
+    if df.empty or 'RESPONSABLE' not in df.columns:
+        return df
+    
+    # Crear copia para no modificar el original
+    df_separado = df.copy()
+    
+    # Lista para almacenar las filas separadas
+    filas_separadas = []
+    
+    # Delimitadores comunes para separar técnicos
+    delimitadores = [',', ';', '|', '/', '\\', 'y', 'Y', '&']
+    
+    for idx, row in df_separado.iterrows():
+        responsable = str(row['RESPONSABLE']).strip()
+        
+        # Si está vacío o es NaN, mantener como está
+        if not responsable or responsable.lower() == 'nan':
+            filas_separadas.append(row)
+            continue
+        
+        # Intentar detectar si hay múltiples técnicos
+        tecnicos_encontrados = []
+        
+        # Revisar si hay delimitadores comunes
+        encontrado_delimitador = False
+        for delim in delimitadores:
+            if delim in responsable:
+                # Separar por el delimitador
+                partes = [p.strip() for p in responsable.split(delim) if p.strip()]
+                if len(partes) > 1:
+                    tecnicos_encontrados.extend(partes)
+                    encontrado_delimitador = True
+                    break
+        
+        # Si no se encontró delimitador, revisar si hay números (como "Técnico 1, Técnico 2")
+        if not encontrado_delimitador:
+            # Buscar patrones como "Técnico 1, Técnico 2" sin comas explícitas
+            patrones = [
+                r'(\w+\s+\d+\s*,\s*\w+\s+\d+)',  # "Técnico 1, Técnico 2"
+                r'(\w+\s+y\s+\w+)',  # "Técnico A y Técnico B"
+            ]
+            
+            for patron in patrones:
+                coincidencias = re.findall(patron, responsable)
+                if coincidencias:
+                    # Intentar separar por coma o "y"
+                    if ',' in responsable:
+                        tecnicos_encontrados = [t.strip() for t in responsable.split(',') if t.strip()]
+                    elif 'y' in responsable.lower():
+                        partes = re.split(r'\s+y\s+', responsable, flags=re.IGNORECASE)
+                        tecnicos_encontrados = [p.strip() for p in partes if p.strip()]
+                    encontrado_delimitador = True
+                    break
+        
+        # Si se encontraron múltiples técnicos, duplicar las filas con horas completas para cada técnico
+        if len(tecnicos_encontrados) > 1:
+            num_tecnicos = len(tecnicos_encontrados)
+            
+            for tecnico in tecnicos_encontrados:
+                # Crear copia de la fila para cada técnico
+                nueva_fila = row.copy()
+                nueva_fila['RESPONSABLE'] = tecnico
+                
+                # **MODIFICACIÓN IMPORTANTE: Cada técnico recibe las horas COMPLETAS**
+                # NO dividir las horas entre técnicos - cada uno recibe el total
+                # Ejemplo: si trabajo tuvo 60 min normales y 60 min extras, cada técnico recibe 60 min normales y 60 min extras
+                if 'TR_MIN' in nueva_fila:
+                    # Mantener el mismo valor de TR_MIN para cada técnico (no dividir)
+                    nueva_fila['TR_MIN'] = row['TR_MIN'] if pd.notna(row['TR_MIN']) else 0
+                if 'H_EXTRA_MIN' in nueva_fila:
+                    # Mantener el mismo valor de H_EXTRA_MIN para cada técnico (no dividir)
+                    nueva_fila['H_EXTRA_MIN'] = row['H_EXTRA_MIN'] if pd.notna(row['H_EXTRA_MIN']) else 0
+                if 'H_NORMAL_MIN' in nueva_fila:
+                    # Mantener el mismo valor de H_NORMAL_MIN para cada técnico (no dividir)
+                    nueva_fila['H_NORMAL_MIN'] = row['H_NORMAL_MIN'] if pd.notna(row['H_NORMAL_MIN']) else 0
+                
+                filas_separadas.append(nueva_fila)
+        else:
+            # Si solo hay un técnico, mantener la fila como está
+            filas_separadas.append(row)
+    
+    # Crear nuevo DataFrame con las filas separadas
+    df_resultado = pd.DataFrame(filas_separadas)
+    
+    return df_resultado
+
+# Función para cargar datos del personal desde Google Sheets
+@st.cache_data(ttl=300)
+def load_personal_data_from_google_sheets():
+    try:
+        # ID del archivo de Google Sheets
+        sheet_id = "1X3xgXkeyoei0WkgoNV54zx83XkIKhDlOVEo93lsaFB0"
+        
+        # Construir URL para exportar como CSV
+        gsheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+        
+        # Leer la hoja PERSONAL
+        df_personal = pd.read_excel(gsheet_url, sheet_name='PERSONAL')
+        
+        # Limpiar nombres de columnas
+        df_personal.columns = [col.strip().upper() for col in df_personal.columns]
+        
+        return df_personal
+    except Exception as e:
+        st.error(f"Error al cargar datos del personal desde Google Sheets: {e}")
+        return pd.DataFrame()
+
+# Función para calcular costos de horas extras - VERSIÓN MEJORADA SEGÚN ESPECIFICACIONES
+def calculate_overtime_costs(filtered_data, personal_data):
+    if filtered_data.empty:
+        return pd.DataFrame(), pd.DataFrame(), "No hay datos filtrados"
+    
+    # Primero separar los técnicos en el DataFrame filtrado
+    filtered_data_separado = separar_tecnicos(filtered_data)
+    
+    # Filtrar solo registros con horas extras
+    filtered_with_overtime = filtered_data_separado[filtered_data_separado['H_EXTRA_MIN'] > 0].copy()
+    
+    if filtered_with_overtime.empty:
+        return pd.DataFrame(), pd.DataFrame(), "No hay registros con horas extras (H_EXTRA_MIN > 0)"
+    
+    # Verificar columna RESPONSABLE
+    if 'RESPONSABLE' not in filtered_with_overtime.columns:
+        return pd.DataFrame(), pd.DataFrame(), "No existe la columna 'RESPONSABLE' en los datos"
+    
+    # Filtrar registros con responsable
+    filtered_with_overtime = filtered_with_overtime[filtered_with_overtime['RESPONSABLE'].notna()]
+    
+    if filtered_with_overtime.empty:
+        return pd.DataFrame(), pd.DataFrame(), "No hay registros con responsable asignado"
+    
+    # Crear copia para no modificar el original
+    df_costs = filtered_with_overtime.copy()
+    
+    # Convertir minutos de horas extras a horas
+    df_costs['H_EXTRA_HORAS'] = df_costs['H_EXTRA_MIN'] / 60
+    
+    # Obtener semana del año y año
+    df_costs['SEMANA'] = df_costs['FECHA_DE_INICIO'].dt.isocalendar().week
+    df_costs['AÑO'] = df_costs['FECHA_DE_INICIO'].dt.year
+    df_costs['SEMANA_STR'] = df_costs['AÑO'].astype(str) + '-S' + df_costs['SEMANA'].astype(str).str.zfill(2)
+    
+    # Preparar datos del personal
+    if personal_data.empty:
+        # Si no hay datos del personal, calcular solo horas sin costos
+        df_costs['COSTO_TOTAL'] = 0
+        df_costs['TECNICO'] = df_costs['RESPONSABLE']
+        
+        weekly_costs = df_costs.groupby(['SEMANA_STR', 'TECNICO']).agg({
+            'COSTO_TOTAL': 'sum',
+            'H_EXTRA_HORAS': 'sum'
+        }).reset_index()
+        
+        accumulated_costs = df_costs.groupby('TECNICO').agg({
+            'COSTO_TOTAL': 'sum',
+            'H_EXTRA_HORAS': 'sum'
+        }).reset_index().sort_values('H_EXTRA_HORAS', ascending=False)
+        
+        return weekly_costs, accumulated_costs, "Sin datos de personal - mostrando solo horas"
+    
+    # Limpiar nombres de columnas del personal
+    personal_data.columns = [str(col).strip().upper() for col in personal_data.columns]
+    
+    # Buscar columnas específicas según las especificaciones
+    nombre_col = None
+    costo_50_col = None
+    costo_100_col = None
+    
+    # Buscar columna de nombre del técnico (APELLIDO Y NOMBRE según especificaciones)
+    for col in personal_data.columns:
+        col_upper = col.upper()
+        if 'APELLIDO' in col_upper and 'NOMBRE' in col_upper:
+            nombre_col = col
+            break
+    
+    # Si no se encuentra la columna exacta, buscar alternativas
+    if nombre_col is None:
+        for col in personal_data.columns:
+            if 'NOMBRE' in col.upper() or 'TECNICO' in col.upper() or 'RESPONSABLE' in col.upper():
+                nombre_col = col
+                break
+    
+    if nombre_col is None:
+        nombre_col = personal_data.columns[0]
+    
+    # Buscar columnas de costos específicas
+    for col in personal_data.columns:
+        col_upper = col.upper()
+        # Buscar 'VALOR DE HORAS AL 50%' según especificaciones
+        if 'VALOR' in col_upper and 'HORAS' in col_upper and '50' in col_upper:
+            costo_50_col = col
+        # Buscar 'VALOR DE HORAS AL 100%' según especificaciones
+        elif 'VALOR' in col_upper and 'HORAS' in col_upper and '100' in col_upper:
+            costo_100_col = col
+    
+    # Si no se encuentran con los nombres específicos, buscar por partes
+    if costo_50_col is None:
+        for col in personal_data.columns:
+            if '50' in col or 'CINCUENTA' in col.upper():
+                costo_50_col = col
+                break
+    
+    if costo_100_col is None:
+        for col in personal_data.columns:
+            if '100' in col or 'CIEN' in col.upper():
+                costo_100_col = col
+                break
+    
+    # Crear diccionario de costos con nombres normalizados
+    costos_tecnicos = {}
+    tecnicos_personal = set()
+    
+    for _, row in personal_data.iterrows():
+        nombre = str(row[nombre_col]).strip()
+        if not nombre or pd.isna(nombre):
+            continue
+        
+        # Normalizar nombre (quitar espacios extra, convertir a mayúsculas)
+        nombre_normalizado = ' '.join(nombre.split()).upper()
+        tecnicos_personal.add(nombre_normalizado)
+        
+        # Obtener costos
+        costo_50 = 0
+        costo_100 = 0
+        
+        if costo_50_col:
+            try:
+                valor = row[costo_50_col]
+                if pd.notna(valor):
+                    # Intentar convertir a número, manejar diferentes formatos
+                    if isinstance(valor, str):
+                        # Limpiar formato de moneda
+                        valor = valor.replace('$', '').replace(',', '').replace(' ', '').strip()
+                    costo_50 = float(valor)
+            except (ValueError, TypeError):
+                costo_50 = 0
+        
+        if costo_100_col:
+            try:
+                valor = row[costo_100_col]
+                if pd.notna(valor):
+                    # Intentar convertir a número, manejar diferentes formatos
+                    if isinstance(valor, str):
+                        # Limpiar formato de moneda
+                        valor = valor.replace('$', '').replace(',', '').replace(' ', '').strip()
+                    costo_100 = float(valor)
+            except (ValueError, TypeError):
+                costo_100 = 0
+        
+        costos_tecnicos[nombre_normalizado] = {
+            '50%': costo_50,
+            '100%': costo_100
+        }
+    
+    # Calcular costos para cada registro
+    costos_detallados = []
+    tecnicos_no_encontrados = set()
+    tecnicos_encontrados = set()
+    registros_con_tipo_indeterminado = 0
+    
+    for idx, row in df_costs.iterrows():
+        nombre_tecnico = str(row['RESPONSABLE']).strip()
+        if not nombre_tecnico or pd.isna(nombre_tecnico):
+            continue
+            
+        # Normalizar nombre del técnico (igual que en el personal)
+        nombre_tecnico_normalizado = ' '.join(nombre_tecnico.split()).upper()
+        
+        # Determinar tipo de hora extra según especificaciones
+        # Buscar en las columnas existentes que puedan indicar el tipo
+        tipo_hora = '50%'  # Valor por defecto según especificaciones
+        
+        # 1. Buscar columna específica 'VALOR DE HORAS' que pueda contener '50%' o '100%'
+        if 'VALOR DE HORAS' in row and pd.notna(row['VALOR DE HORAS']):
+            valor_hora_str = str(row['VALOR DE HORAS']).upper()
+            if '100%' in valor_hora_str or '100' in valor_hora_str or 'CIEN' in valor_hora_str:
+                tipo_hora = '100%'
+            elif '50%' in valor_hora_str or '50' in valor_hora_str or 'CINCUENTA' in valor_hora_str:
+                tipo_hora = '50%'
+        
+        # 2. Buscar en otras columnas que puedan indicar el tipo
+        elif 'TIPO HORA EXTRA' in row and pd.notna(row['TIPO HORA EXTRA']):
+            tipo_str = str(row['TIPO HORA EXTRA']).upper()
+            if '100' in tipo_str:
+                tipo_hora = '100%'
+            elif '50' in tipo_str:
+                tipo_hora = '50%'
+        
+        # 3. Si no se encuentra información, asumir 50% (por defecto)
+        else:
+            registros_con_tipo_indeterminado += 1
+        
+        # Obtener costo por hora del técnico
+        costo_por_hora = 0
+        if nombre_tecnico_normalizado in costos_tecnicos:
+            costo_por_hora = costos_tecnicos[nombre_tecnico_normalizado].get(tipo_hora, 0)
+            tecnicos_encontrados.add(nombre_tecnico)
+        else:
+            tecnicos_no_encontrados.add(nombre_tecnico)
+            # Intentar búsqueda parcial si no se encuentra exacto
+            for tecnico_personal in tecnicos_personal:
+                if nombre_tecnico_normalizado in tecnico_personal or tecnico_personal in nombre_tecnico_normalizado:
+                    costo_por_hora = costos_tecnicos[tecnico_personal].get(tipo_hora, 0)
+                    tecnicos_encontrados.add(nombre_tecnico)
+                    break
+        
+        # Calcular costo total
+        horas_extra = row['H_EXTRA_HORAS']
+        costo_total = horas_extra * costo_por_hora
+        
+        costos_detallados.append({
+            'SEMANA_STR': row['SEMANA_STR'],
+            'TECNICO': nombre_tecnico,
+            'TECNICO_NORMALIZADO': nombre_tecnico_normalizado,
+            'TIPO_HORA': tipo_hora,
+            'HORAS_EXTRA': horas_extra,
+            'COSTO_POR_HORA': costo_por_hora,
+            'COSTO_TOTAL': costo_total,
+            'H_EXTRA_MIN': row['H_EXTRA_MIN']
+        })
+    
+    if not costos_detallados:
+        return pd.DataFrame(), pd.DataFrame(), "No se pudieron calcular costos (lista vacía)"
+    
+    # Crear DataFrame con costos detallados
+    df_costos = pd.DataFrame(costos_detallados)
+    
+    # Datos semanales agrupados
+    weekly_costs = df_costos.groupby(['SEMANA_STR', 'TECNICO']).agg({
+        'COSTO_TOTAL': 'sum',
+        'HORAS_EXTRA': 'sum',
+        'H_EXTRA_MIN': 'sum'
+    }).reset_index()
+    
+    # Datos acumulados por técnico
+    accumulated_costs = df_costos.groupby('TECNICO').agg({
+        'COSTO_TOTAL': 'sum',
+        'HORAS_EXTRA': 'sum',
+        'H_EXTRA_MIN': 'sum'
+    }).reset_index().sort_values('COSTO_TOTAL', ascending=False)
+    
+    # Construir mensaje informativo
+    mensaje_extra = f" | Técnicos encontrados: {len(tecnicos_encontrados)}"
+    if tecnicos_no_encontrados:
+        mensaje_extra += f" | Técnicos no encontrados: {len(tecnicos_no_encontrados)}"
+    if registros_con_tipo_indeterminado > 0:
+        mensaje_extra += f" | Registros con tipo indeterminado (asumido 50%): {registros_con_tipo_indeterminado}"
+    
+    # Información adicional sobre costos
+    total_costo = accumulated_costs['COSTO_TOTAL'].sum()
+    total_horas = accumulated_costs['HORAS_EXTRA'].sum()
+    costo_promedio_hora = total_costo / total_horas if total_horas > 0 else 0
+    
+    mensaje_extra += f" | Costo total: ${total_costo:,.2f}"
+    mensaje_extra += f" | Horas totales: {total_horas:,.2f}"
+    mensaje_extra += f" | Costo promedio/hora: ${costo_promedio_hora:,.2f}"
+    
+    return weekly_costs, accumulated_costs, f"Cálculo exitoso{mensaje_extra}"
+
+# Función para mostrar información detallada de costos
+def show_detailed_costs_info(weekly_costs, accumulated_costs, personal_data):
+    """Muestra información detallada sobre los costos calculados"""
+    
+    st.subheader("📋 Información Detallada de Costos")
+    
+    if accumulated_costs.empty:
+        st.info("No hay datos de costos acumulados para mostrar.")
+        return
+    
+    # Mostrar resumen general
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_costo = accumulated_costs['COSTO_TOTAL'].sum()
+        st.metric("Costo Total Horas Extras", f"${total_costo:,.2f}")
+    
+    with col2:
+        total_horas = accumulated_costs['HORAS_EXTRA'].sum()
+        st.metric("Horas Extras Totales", f"{total_horas:,.1f} horas")
+    
+    with col3:
+        costo_promedio = total_costo / total_horas if total_horas > 0 else 0
+        st.metric("Costo Promedio por Hora", f"${costo_promedio:,.2f}")
+    
+    with col4:
+        num_tecnicos = len(accumulated_costs)
+        st.metric("Técnicos con Horas Extras", f"{num_tecnicos}")
+    
+    # Mostrar tabla detallada con formato
+    st.subheader("📊 Detalle de Costos por Técnico")
+    
+    # Crear tabla formateada
+    tabla_detalle = accumulated_costs.copy()
+    tabla_detalle['COSTO_TOTAL_FMT'] = tabla_detalle['COSTO_TOTAL'].apply(lambda x: f"${x:,.2f}")
+    tabla_detalle['HORAS_EXTRA_FMT'] = tabla_detalle['HORAS_EXTRA'].apply(lambda x: f"{x:,.2f}")
+    tabla_detalle['COSTO_POR_HORA'] = tabla_detalle.apply(
+        lambda x: x['COSTO_TOTAL'] / x['HORAS_EXTRA'] if x['HORAS_EXTRA'] > 0 else 0, 
+        axis=1
+    )
+    tabla_detalle['COSTO_POR_HORA_FMT'] = tabla_detalle['COSTO_POR_HORA'].apply(lambda x: f"${x:,.2f}")
+    tabla_detalle['PORCENTAJE'] = (tabla_detalle['COSTO_TOTAL'] / total_costo * 100) if total_costo > 0 else 0
+    tabla_detalle['PORCENTAJE_FMT'] = tabla_detalle['PORCENTAJE'].apply(lambda x: f"{x:.1f}%")
+    
+    # Ordenar columnas para mostrar
+    columnas_mostrar = ['TECNICO', 'HORAS_EXTRA_FMT', 'COSTO_POR_HORA_FMT', 'COSTO_TOTAL_FMT', 'PORCENTAJE_FMT']
+    tabla_detalle = tabla_detalle[columnas_mostrar]
+    tabla_detalle.columns = ['Técnico', 'Horas Extras', 'Costo por Hora', 'Costo Total', '% del Total']
+    
+    st.dataframe(tabla_detalle, use_container_width=True)
+    
+    # Mostrar datos semanales si existen
+    if not weekly_costs.empty:
+        with st.expander("Ver datos semanales detallados"):
+            # Formatear datos semanales
+            weekly_formatted = weekly_costs.copy()
+            weekly_formatted['COSTO_TOTAL_FMT'] = weekly_formatted['COSTO_TOTAL'].apply(lambda x: f"${x:,.2f}")
+            weekly_formatted['HORAS_EXTRA_FMT'] = weekly_formatted['HORAS_EXTRA'].apply(lambda x: f"{x:,.2f}")
+            
+            st.dataframe(
+                weekly_formatted[['SEMANA_STR', 'TECNICO', 'HORAS_EXTRA_FMT', 'COSTO_TOTAL_FMT']],
+                use_container_width=True
+            )
 
 # Función para calcular la duración en minutos entre dos fechas y horas
 def calcular_duracion_minutos(fecha_inicio, hora_inicio, fecha_fin, hora_fin):
@@ -284,13 +712,16 @@ def get_weekly_data(df):
     
     return weekly_data
 
-# Función para obtener datos semanales por técnico (TR_MIN y H_EXTRA_MIN)
+# Función para obtener datos semanales por técnico (TR_MIN y H_EXTRA_MIN) - CON TÉCNICOS SEPARADOS
 def get_weekly_technician_hours(df):
     if df.empty or 'FECHA_DE_INICIO' not in df.columns or 'RESPONSABLE' not in df.columns:
         return pd.DataFrame()
     
+    # Primero separar los técnicos - AHORA CADA TÉCNICO RECIBE HORAS COMPLETAS
+    df_separado = separar_tecnicos(df)
+    
     # Crear copia para no modificar el original
-    df_weekly = df.copy()
+    df_weekly = df_separado.copy()
     
     # Obtener semana del año y año - USAR FECHA_DE_INICIO
     df_weekly['SEMANA'] = df_weekly['FECHA_DE_INICIO'].dt.isocalendar().week
@@ -313,13 +744,16 @@ def get_weekly_technician_hours(df):
     
     return weekly_tech_data
 
-# Función para obtener datos acumulados por técnico
+# Función para obtener datos acumulados por técnico - CON TÉCNICOS SEPARADOS
 def get_accumulated_technician_hours(df):
     if df.empty or 'RESPONSABLE' not in df.columns:
         return pd.DataFrame()
     
+    # Primero separar los técnicos - AHORA CADA TÉCNICO RECIBE HORAS COMPLETAS
+    df_separado = separar_tecnicos(df)
+    
     # Agrupar por técnico
-    tech_data = df.groupby('RESPONSABLE').agg({
+    tech_data = df_separado.groupby('RESPONSABLE').agg({
         'TR_MIN': 'sum',
         'H_EXTRA_MIN': 'sum'
     }).reset_index()
@@ -446,6 +880,9 @@ def main():
     if 'data' not in st.session_state:
         st.session_state.data = pd.DataFrame()
     
+    if 'personal_data' not in st.session_state:
+        st.session_state.personal_data = pd.DataFrame()
+    
     if 'last_update' not in st.session_state:
         st.session_state.last_update = None
     
@@ -459,6 +896,16 @@ def main():
                 st.success("✅ Datos cargados correctamente desde Google Sheets")
             else:
                 st.error("❌ No se pudieron cargar los datos desde Google Sheets")
+    
+    # Cargar datos del personal si no están cargados
+    if st.session_state.personal_data.empty:
+        with st.spinner("Cargando datos del personal..."):
+            personal_df = load_personal_data_from_google_sheets()
+            if not personal_df.empty:
+                st.session_state.personal_data = personal_df
+                st.success("✅ Datos del personal cargados correctamente")
+            else:
+                st.warning("⚠️ No se pudieron cargar los datos del personal. La pestaña de costos puede no funcionar correctamente.")
     
     # Sidebar
     st.sidebar.title("Opciones")
@@ -559,8 +1006,11 @@ def main():
         </style>
         """, unsafe_allow_html=True)
         
-        # Pestañas - MODIFICADO: cambiar nombre de la última pestaña
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Planta", "TFS", "TR", "TFC", "Tipo de Mtto", "Confiabilidad", "Horas Personal Técnico"])
+        # Pestañas - MODIFICADO: agregar nueva pestaña de Costos Horas Extras
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+            "Planta", "TFS", "TR", "TFC", "Tipo de Mtto", "Confiabilidad", 
+            "Horas Personal Técnico", "Costos Horas Extras Personal Técnico"
+        ])
         
         # Calcular métricas
         metrics = calculate_metrics(filtered_data)
@@ -572,11 +1022,14 @@ def main():
         # Obtener datos semanales de correctivos de emergencia
         weekly_emergency_data = get_weekly_emergency_data(filtered_data)
         
-        # Obtener datos semanales por técnico
+        # Obtener datos semanales por técnico (CON TÉCNICOS SEPARADOS)
         weekly_tech_data = get_weekly_technician_hours(filtered_data)
         
-        # Obtener datos acumulados por técnico
+        # Obtener datos acumulados por técnico (CON TÉCNICOS SEPARADOS)
         accumulated_tech_data = get_accumulated_technician_hours(filtered_data)
+        
+        # Calcular costos de horas extras (YA INCLUYE SEPARACIÓN DE TÉCNICOS)
+        weekly_costs, accumulated_costs, mensaje_calculo = calculate_overtime_costs(filtered_data, st.session_state.personal_data)
         
         # Pestaña Planta - CORREGIDA
         with tab1:
@@ -1159,7 +1612,7 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña Horas Personal Técnico - MODIFICADA COMPLETAMENTE (CORREGIDA)
+        # Pestaña Horas Personal Técnico - MODIFICADA PARA MANEJAR MÚLTIPLES TÉCNICOS
         with tab7:
             st.header("👷 Análisis de Horas del Personal Técnico")
             
@@ -1169,65 +1622,119 @@ def main():
                     st.warning("⚠️ La columna 'RESPONSABLE' no está presente en los datos.")
                     st.info("Para ver el análisis de horas por técnico, asegúrate de que tu dataset incluya la columna 'RESPONSABLE'.")
                 else:
-                    # Filtrar datos que tengan responsable
-                    data_with_responsible = filtered_data[filtered_data['RESPONSABLE'].notna()]
+                    # Crear DataFrame con técnicos separados - AHORA CADA TÉCNICO RECIBE HORAS COMPLETAS
+                    data_with_responsible_separado = separar_tecnicos(filtered_data)
                     
-                    if data_with_responsible.empty:
+                    if data_with_responsible_separado.empty:
                         st.info("No hay datos con responsable asignado para mostrar.")
                     else:
-                        # Obtener datos semanales por técnico
+                        # Obtener datos semanales por técnico (ya separados en la función)
                         if not weekly_tech_data.empty:
-                            # Filtrar datos con responsable
-                            weekly_tech_responsible = weekly_tech_data[weekly_tech_data['RESPONSABLE'].notna()]
+                            # Crear paleta de colores para técnicos
+                            tecnicos_unicos = weekly_tech_data['RESPONSABLE'].unique()
+                            colores_tecnicos = {}
                             
-                            if not weekly_tech_responsible.empty:
-                                # Crear paleta de colores para técnicos
-                                tecnicos_unicos = weekly_tech_responsible['RESPONSABLE'].unique()
-                                colores_tecnicos = {}
+                            # Paleta de colores para técnicos (usando colores pastel)
+                            colores_disponibles = COLOR_PALETTE['pastel'] + ['#FFA07A', '#20B2AA', '#778899', '#B0C4DE', '#FFB6C1', '#98FB98', '#DDA0DD', '#FFE4B5']
+                            
+                            for i, tecnico in enumerate(tecnicos_unicos):
+                                colores_tecnicos[tecnico] = colores_disponibles[i % len(colores_disponibles)]
+                            
+                            # --- SECCIÓN 1: HORAS NORMALES (TR_MIN) ---
+                            st.subheader("📊 Horas Normales por Técnico")
+                            
+                            # Gráfico 1: Barras apiladas semanales de horas normales
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                # Ordenar semanas
+                                semanas_ordenadas = sorted(weekly_tech_data['SEMANA_STR'].unique())
                                 
-                                # Paleta de colores para técnicos (usando colores pastel)
-                                colores_disponibles = COLOR_PALETTE['pastel'] + ['#FFA07A', '#20B2AA', '#778899', '#B0C4DE', '#FFB6C1', '#98FB98', '#DDA0DD', '#FFE4B5']
+                                fig = px.bar(weekly_tech_data, 
+                                            x='SEMANA_STR', 
+                                            y='TR_HORAS',
+                                            color='RESPONSABLE',
+                                            title='Horas Normales por Semana (por Técnico)',
+                                            labels={'SEMANA_STR': 'Semana', 'TR_HORAS': 'Horas Normales', 'RESPONSABLE': 'Técnico'},
+                                            color_discrete_map=colores_tecnicos,
+                                            category_orders={'SEMANA_STR': semanas_ordenadas})
+                                fig.update_layout(barmode='stack')
+                                st.plotly_chart(fig, use_container_width=True)
+                            
+                            with col2:
+                                # Gráfico de torta: Horas normales acumuladas por técnico
+                                horas_normales_acumuladas = data_with_responsible_separado.groupby('RESPONSABLE')['TR_MIN'].sum().reset_index()
+                                horas_normales_acumuladas['TR_HORAS'] = horas_normales_acumuladas['TR_MIN'] / 60
+                                horas_normales_acumuladas = horas_normales_acumuladas.sort_values('TR_HORAS', ascending=False)
                                 
-                                for i, tecnico in enumerate(tecnicos_unicos):
-                                    colores_tecnicos[tecnico] = colores_disponibles[i % len(colores_disponibles)]
-                                
-                                # --- SECCIÓN 1: HORAS NORMALES (TR_MIN) ---
-                                st.subheader("📊 Horas Normales por Técnico")
-                                
-                                # Gráfico 1: Barras apiladas semanales de horas normales
+                                if not horas_normales_acumuladas.empty:
+                                    # Formatear etiquetas para mostrar técnico y horas
+                                    horas_normales_acumuladas['LABEL'] = horas_normales_acumuladas.apply(
+                                        lambda x: f"{x['RESPONSABLE']}: {x['TR_HORAS']:.1f} horas", axis=1
+                                    )
+                                    
+                                    fig = px.pie(horas_normales_acumuladas, 
+                                                values='TR_HORAS', 
+                                                names='LABEL',
+                                                title='Distribución de Horas Normales Acumuladas',
+                                                color='RESPONSABLE',
+                                                color_discrete_map=colores_tecnicos)
+                                    
+                                    # Actualizar el hovertemplate para mostrar información adicional
+                                    fig.update_traces(
+                                        textposition='inside', 
+                                        textinfo='percent+label',
+                                        hovertemplate='<b>%{label}</b><br>' +
+                                                    'Horas: %{value:.1f}<br>' +
+                                                    'Porcentaje: %{percent}<extra></extra>'
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+                                else:
+                                    st.info("No hay datos de horas normales acumuladas para mostrar.")
+                            
+                            # --- SECCIÓN 2: HORAS EXTRAS (H_EXTRA_MIN) ---
+                            st.subheader("⏰ Horas Extras por Técnico")
+                            
+                            # Filtrar datos con responsable y que tengan horas extras
+                            weekly_tech_extras = weekly_tech_data[weekly_tech_data['H_EXTRA_HORAS'] > 0]
+                            
+                            if not weekly_tech_extras.empty:
+                                # Usar la misma paleta de colores que en la sección anterior
+                                # Gráfico 3: Barras apiladas semanales de horas extras
                                 col1, col2 = st.columns(2)
                                 
                                 with col1:
                                     # Ordenar semanas
-                                    semanas_ordenadas = sorted(weekly_tech_responsible['SEMANA_STR'].unique())
+                                    semanas_ordenadas = sorted(weekly_tech_extras['SEMANA_STR'].unique())
                                     
-                                    fig = px.bar(weekly_tech_responsible, 
+                                    fig = px.bar(weekly_tech_extras, 
                                                 x='SEMANA_STR', 
-                                                y='TR_HORAS',
+                                                y='H_EXTRA_HORAS',
                                                 color='RESPONSABLE',
-                                                title='Horas Normales por Semana (por Técnico)',
-                                                labels={'SEMANA_STR': 'Semana', 'TR_HORAS': 'Horas Normales', 'RESPONSABLE': 'Técnico'},
+                                                title='Horas Extras por Semana (por Técnico)',
+                                                labels={'SEMANA_STR': 'Semana', 'H_EXTRA_HORAS': 'Horas Extras', 'RESPONSABLE': 'Técnico'},
                                                 color_discrete_map=colores_tecnicos,
                                                 category_orders={'SEMANA_STR': semanas_ordenadas})
                                     fig.update_layout(barmode='stack')
                                     st.plotly_chart(fig, use_container_width=True)
                                 
                                 with col2:
-                                    # Gráfico de torta: Horas normales acumuladas por técnico
-                                    horas_normales_acumuladas = data_with_responsible.groupby('RESPONSABLE')['TR_MIN'].sum().reset_index()
-                                    horas_normales_acumuladas['TR_HORAS'] = horas_normales_acumuladas['TR_MIN'] / 60
-                                    horas_normales_acumuladas = horas_normales_acumuladas.sort_values('TR_HORAS', ascending=False)
+                                    # Gráfico de torta: Horas extras acumuladas por técnico
+                                    horas_extras_acumuladas = data_with_responsible_separado.groupby('RESPONSABLE')['H_EXTRA_MIN'].sum().reset_index()
+                                    horas_extras_acumuladas['H_EXTRA_HORAS'] = horas_extras_acumuladas['H_EXTRA_MIN'] / 60
+                                    horas_extras_acumuladas = horas_extras_acumuladas[horas_extras_acumuladas['H_EXTRA_HORAS'] > 0]
+                                    horas_extras_acumuladas = horas_extras_acumuladas.sort_values('H_EXTRA_HORAS', ascending=False)
                                     
-                                    if not horas_normales_acumuladas.empty:
+                                    if not horas_extras_acumuladas.empty:
                                         # Formatear etiquetas para mostrar técnico y horas
-                                        horas_normales_acumuladas['LABEL'] = horas_normales_acumuladas.apply(
-                                            lambda x: f"{x['RESPONSABLE']}: {x['TR_HORAS']:.1f} horas", axis=1
+                                        horas_extras_acumuladas['LABEL'] = horas_extras_acumuladas.apply(
+                                            lambda x: f"{x['RESPONSABLE']}: {x['H_EXTRA_HORAS']:.1f} horas", axis=1
                                         )
                                         
-                                        fig = px.pie(horas_normales_acumuladas, 
-                                                    values='TR_HORAS', 
+                                        fig = px.pie(horas_extras_acumuladas, 
+                                                    values='H_EXTRA_HORAS', 
                                                     names='LABEL',
-                                                    title='Distribución de Horas Normales Acumuladas',
+                                                    title='Distribución de Horas Extras Acumuladas',
                                                     color='RESPONSABLE',
                                                     color_discrete_map=colores_tecnicos)
                                         
@@ -1236,79 +1743,304 @@ def main():
                                             textposition='inside', 
                                             textinfo='percent+label',
                                             hovertemplate='<b>%{label}</b><br>' +
-                                                        'Horas: %{value:.1f}<br>' +
+                                                        'Horas Extras: %{value:.1f}<br>' +
                                                         'Porcentaje: %{percent}<extra></extra>'
                                         )
                                         st.plotly_chart(fig, use_container_width=True)
                                     else:
-                                        st.info("No hay datos de horas normales acumuladas para mostrar.")
-                                
-                                # --- SECCIÓN 2: HORAS EXTRAS (H_EXTRA_MIN) ---
-                                st.subheader("⏰ Horas Extras por Técnico")
-                                
-                                # Filtrar datos con responsable y que tengan horas extras
-                                weekly_tech_extras = weekly_tech_responsible[weekly_tech_responsible['H_EXTRA_HORAS'] > 0]
-                                
-                                if not weekly_tech_extras.empty:
-                                    # Usar la misma paleta de colores que en la sección anterior
-                                    # Gráfico 3: Barras apiladas semanales de horas extras
-                                    col1, col2 = st.columns(2)
-                                    
-                                    with col1:
-                                        # Ordenar semanas
-                                        semanas_ordenadas = sorted(weekly_tech_extras['SEMANA_STR'].unique())
-                                        
-                                        fig = px.bar(weekly_tech_extras, 
-                                                    x='SEMANA_STR', 
-                                                    y='H_EXTRA_HORAS',
-                                                    color='RESPONSABLE',
-                                                    title='Horas Extras por Semana (por Técnico)',
-                                                    labels={'SEMANA_STR': 'Semana', 'H_EXTRA_HORAS': 'Horas Extras', 'RESPONSABLE': 'Técnico'},
-                                                    color_discrete_map=colores_tecnicos,
-                                                    category_orders={'SEMANA_STR': semanas_ordenadas})
-                                        fig.update_layout(barmode='stack')
-                                        st.plotly_chart(fig, use_container_width=True)
-                                    
-                                    with col2:
-                                        # Gráfico de torta: Horas extras acumuladas por técnico
-                                        horas_extras_acumuladas = data_with_responsible.groupby('RESPONSABLE')['H_EXTRA_MIN'].sum().reset_index()
-                                        horas_extras_acumuladas['H_EXTRA_HORAS'] = horas_extras_acumuladas['H_EXTRA_MIN'] / 60
-                                        horas_extras_acumuladas = horas_extras_acumuladas[horas_extras_acumuladas['H_EXTRA_HORAS'] > 0]
-                                        horas_extras_acumuladas = horas_extras_acumuladas.sort_values('H_EXTRA_HORAS', ascending=False)
-                                        
-                                        if not horas_extras_acumuladas.empty:
-                                            # Formatear etiquetas para mostrar técnico y horas
-                                            horas_extras_acumuladas['LABEL'] = horas_extras_acumuladas.apply(
-                                                lambda x: f"{x['RESPONSABLE']}: {x['H_EXTRA_HORAS']:.1f} horas", axis=1
-                                            )
-                                            
-                                            fig = px.pie(horas_extras_acumuladas, 
-                                                        values='H_EXTRA_HORAS', 
-                                                        names='LABEL',
-                                                        title='Distribución de Horas Extras Acumuladas',
-                                                        color='RESPONSABLE',
-                                                        color_discrete_map=colores_tecnicos)
-                                            
-                                            # Actualizar el hovertemplate para mostrar información adicional
-                                            fig.update_traces(
-                                                textposition='inside', 
-                                                textinfo='percent+label',
-                                                hovertemplate='<b>%{label}</b><br>' +
-                                                            'Horas Extras: %{value:.1f}<br>' +
-                                                            'Porcentaje: %{percent}<extra></extra>'
-                                            )
-                                            st.plotly_chart(fig, use_container_width=True)
-                                        else:
-                                            st.info("No hay datos de horas extras acumuladas para mostrar.")
-                                else:
-                                    st.info("No hay datos de horas extras por técnico para mostrar.")
+                                        st.info("No hay datos de horas extras acumuladas para mostrar.")
                             else:
-                                st.info("No hay datos semanales de horas por técnico para mostrar.")
+                                st.info("No hay datos de horas extras por técnico para mostrar.")
+                            
+                            # --- EXPLICACIÓN DE LA MODIFICACIÓN ---
+                            with st.expander("ℹ️ Información sobre el cálculo de horas"):
+                                st.markdown("""
+                                ### 📊 **Modificación en el cálculo de horas por técnico**
+                                
+                                **Antes:** Si una orden tenía 2 técnicos y 60 minutos de trabajo, cada técnico recibía 30 minutos.
+                                
+                                **Ahora:** Si una orden tiene 2 técnicos y 60 minutos de trabajo, **cada técnico recibe 60 minutos**.
+                                
+                                ### **Ejemplo:**
+                                - Orden con 2 técnicos (Juan y Pedro)
+                                - Duración: 60 minutos normales + 60 minutos extras
+                                - **Resultado:**
+                                  - Juan: 60 minutos normales + 60 minutos extras
+                                  - Pedro: 60 minutos normales + 60 minutos extras
+                                
+                                ### **Justificación:**
+                                Esta modificación refleja la realidad de que cada técnico trabaja el tiempo completo de la orden,
+                                independientemente de cuántos técnicos participen en el trabajo.
+                                """)
                         else:
                             st.info("No hay datos semanales por técnico para mostrar.")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados.")
-    
+        
+        # Pestaña Costos Horas Extras Personal Técnico - NUEVA PESTAÑA (YA INCLUYE SEPARACIÓN DE TÉCNICOS)
+        with tab8:
+            st.header("💰 Costos de Horas Extras del Personal Técnico")
+            
+            if not filtered_data.empty:
+                # Calcular costos (con la función mejorada)
+                weekly_costs, accumulated_costs, mensaje_calculo = calculate_overtime_costs(filtered_data, st.session_state.personal_data)
+                
+                # Mostrar mensaje de estado
+                st.info(f"Estado del cálculo: {mensaje_calculo}")
+                
+                if weekly_costs.empty or accumulated_costs.empty:
+                    # Mostrar información de depuración
+                    with st.expander("🔍 Depuración - Ver detalles de los datos", expanded=True):
+                        st.subheader("Registros con horas extras encontrados")
+                        
+                        # Filtrar registros con horas extras
+                        registros_con_extras = filtered_data[filtered_data['H_EXTRA_MIN'] > 0]
+                        
+                        if not registros_con_extras.empty:
+                            st.write(f"**Total de registros con horas extras:** {len(registros_con_extras)}")
+                            
+                            # Mostrar columnas relevantes
+                            columnas = ['FECHA_DE_INICIO', 'RESPONSABLE', 'H_EXTRA_MIN']
+                            if 'VALOR DE HORAS' in registros_con_extras.columns:
+                                columnas.append('VALOR DE HORAS')
+                            
+                            st.dataframe(
+                                registros_con_extras[columnas].head(20),
+                                use_container_width=True,
+                                column_config={
+                                    "H_EXTRA_MIN": st.column_config.NumberColumn(
+                                        "Minutos Extra",
+                                        help="Minutos de horas extras",
+                                        format="%d min"
+                                    )
+                                }
+                            )
+                            
+                            # Mostrar cómo se separarían los técnicos
+                            st.subheader("Separación de técnicos (ejemplo)")
+                            ejemplo_separado = separar_tecnicos(registros_con_extras.head(5))
+                            if not ejemplo_separado.empty and len(ejemplo_separado) > 0:
+                                st.write("**Ejemplo de cómo se distribuirían las horas entre múltiples técnicos:**")
+                                st.markdown("""
+                                **NOTA:** Con la nueva modificación, cada técnico recibe las horas COMPLETAS de la orden.
+                                
+                                Ejemplo:
+                                - Orden original: 120 minutos extras, 2 técnicos (Juan y Pedro)
+                                - Resultado después de separar:
+                                  - Juan: 120 minutos extras
+                                  - Pedro: 120 minutos extras
+                                """)
+                                st.dataframe(ejemplo_separado[['FECHA_DE_INICIO', 'RESPONSABLE', 'H_EXTRA_MIN']], 
+                                           use_container_width=True)
+                            
+                            # Mostrar resumen por técnico
+                            st.subheader("Resumen por técnico")
+                            registros_separados = separar_tecnicos(registros_con_extras)
+                            resumen_tecnicos = registros_separados.groupby('RESPONSABLE').agg({
+                                'H_EXTRA_MIN': ['sum', 'count']
+                            }).reset_index()
+                            resumen_tecnicos.columns = ['Técnico', 'Total Minutos', 'N° Registros']
+                            resumen_tecnicos['Total Horas'] = resumen_tecnicos['Total Minutos'] / 60
+                            st.dataframe(resumen_tecnicos, use_container_width=True)
+                        else:
+                            st.warning("No se encontraron registros con H_EXTRA_MIN > 0")
+                        
+                        # Mostrar datos del personal
+                        if not st.session_state.personal_data.empty:
+                            st.subheader("Datos del personal cargados")
+                            st.write(f"**Registros en PERSONAL:** {len(st.session_state.personal_data)}")
+                            st.dataframe(st.session_state.personal_data.head(20), use_container_width=True)
+                            
+                            # Mostrar nombres de técnicos en PERSONAL
+                            st.subheader("Técnicos en hoja PERSONAL")
+                            # Buscar columna de nombres
+                            nombre_col = None
+                            for col in st.session_state.personal_data.columns:
+                                col_str = str(col).upper()
+                                if any(keyword in col_str for keyword in ['NOMBRE', 'TECNICO', 'RESPONSABLE']):
+                                    nombre_col = col
+                                    break
+                            
+                            if nombre_col:
+                                tecnicos_personal = st.session_state.personal_data[nombre_col].dropna().unique()
+                                st.write(f"**Columna de nombres:** {nombre_col}")
+                                st.write(f"**Técnicos encontrados:** {len(tecnicos_personal)}")
+                                for i, tecnico in enumerate(tecnicos_personal[:15]):
+                                    st.write(f"{i+1}. {tecnico}")
+                                if len(tecnicos_personal) > 15:
+                                    st.write(f"... y {len(tecnicos_personal) - 15} más")
+                            else:
+                                st.write("No se pudo identificar la columna de nombres")
+                            
+                            # Mostrar columnas de costos
+                            st.subheader("Columnas de costos encontradas")
+                            columnas_costos = []
+                            for col in st.session_state.personal_data.columns:
+                                if 'VALOR' in col.upper() and 'HORAS' in col.upper():
+                                    columnas_costos.append(col)
+                            
+                            if columnas_costos:
+                                st.write(f"**Columnas de costos:** {', '.join(columnas_costos)}")
+                            else:
+                                st.warning("No se encontraron columnas de costos (buscar 'VALOR' y 'HORAS' en el nombre)")
+                        else:
+                            st.warning("No se cargaron datos de la hoja PERSONAL")
+                    
+                    st.markdown("""
+                    ### 🔧 Posibles soluciones:
+                    
+                    1. **Verificar nombres de técnicos:** 
+                       - Los nombres en 'RESPONSABLE' deben coincidir con los de la hoja PERSONAL
+                       - Revisa mayúsculas, tildes y espacios
+                    
+                    2. **Verificar estructura de la hoja PERSONAL:**
+                       - Debe contener columnas con los costos por hora
+                       - Busca columnas llamadas 'VALOR DE HORAS AL 50%' y 'VALOR DE HORAS AL 100%'
+                    
+                    3. **Verificar formato de horas extras:**
+                       - La columna 'h extra (min)' debe contener números mayores a 0
+                    
+                    4. **Verificar filtros aplicados:**
+                       - Asegúrate de que los filtros no estén excluyendo los registros con horas extras
+                    """)
+                    
+                else:
+                    # Mostrar información detallada de costos
+                    show_detailed_costs_info(weekly_costs, accumulated_costs, st.session_state.personal_data)
+                    
+                    # Obtener lista única de técnicos para crear paleta de colores
+                    tecnicos_unicos = list(weekly_costs['TECNICO'].unique())
+                    colores_tecnicos = {}
+                    
+                    # Paleta de colores para técnicos
+                    colores_disponibles = COLOR_PALETTE['pastel'] + ['#FFA07A', '#20B2AA', '#778899', '#B0C4DE', '#FFB6C1', '#98FB98', '#DDA0DD', '#FFE4B5']
+                    
+                    for i, tecnico in enumerate(tecnicos_unicos):
+                        colores_tecnicos[tecnico] = colores_disponibles[i % len(colores_disponibles)]
+                    
+                    # --- GRÁFICO 1: Barras apiladas de costos por semana ---
+                    st.subheader("📈 Evolución de Costos por Semana")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Ordenar semanas
+                        semanas_ordenadas = sorted(weekly_costs['SEMANA_STR'].unique())
+                        
+                        fig = px.bar(weekly_costs, 
+                                    x='SEMANA_STR', 
+                                    y='COSTO_TOTAL',
+                                    color='TECNICO',
+                                    title='Costos de Horas Extras por Semana (USD)',
+                                    labels={'SEMANA_STR': 'Semana', 'COSTO_TOTAL': 'Costo Total (USD)', 'TECNICO': 'Técnico'},
+                                    color_discrete_map=colores_tecnicos,
+                                    category_orders={'SEMANA_STR': semanas_ordenadas})
+                        fig.update_layout(barmode='stack')
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    with col2:
+                        # --- GRÁFICO 2: Evolución de horas extras por semana ---
+                        fig = px.bar(weekly_costs, 
+                                    x='SEMANA_STR', 
+                                    y='HORAS_EXTRA',
+                                    color='TECNICO',
+                                    title='Horas Extras por Semana',
+                                    labels={'SEMANA_STR': 'Semana', 'HORAS_EXTRA': 'Horas Extras', 'TECNICO': 'Técnico'},
+                                    color_discrete_map=colores_tecnicos,
+                                    category_orders={'SEMANA_STR': semanas_ordenadas})
+                        fig.update_layout(barmode='stack')
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # --- GRÁFICO 3: Análisis de distribución ---
+                    st.subheader("📊 Análisis de Distribución")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Gráfico de torta de costos acumulados
+                        pie_data = accumulated_costs.copy()
+                        pie_data['PORCENTAJE'] = (pie_data['COSTO_TOTAL'] / pie_data['COSTO_TOTAL'].sum()) * 100
+                        
+                        # Formatear etiquetas para mostrar técnico, costo y porcentaje
+                        pie_data['LABEL'] = pie_data.apply(
+                            lambda x: f"{x['TECNICO']}: ${x['COSTO_TOTAL']:,.2f} ({x['PORCENTAJE']:.1f}%)", 
+                            axis=1
+                        )
+                        
+                        fig = px.pie(pie_data, 
+                                    values='COSTO_TOTAL', 
+                                    names='LABEL',
+                                    title='Distribución de Costos de Horas Extras',
+                                    color='TECNICO',
+                                    color_discrete_map=colores_tecnicos)
+                        
+                        fig.update_traces(
+                            textposition='inside', 
+                            textinfo='percent+label',
+                            hovertemplate='<b>%{label}</b><br>' +
+                                        'Costo Total: $%{value:,.2f}<br>' +
+                                        'Porcentaje: %{percent}<br>' +
+                                        'Horas Extras: %{customdata[0]:,.1f}<extra></extra>',
+                            customdata=pie_data[['HORAS_EXTRA']].values
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    with col2:
+                        # Gráfico de barras horizontales para costos acumulados
+                        fig = px.bar(accumulated_costs.sort_values('COSTO_TOTAL', ascending=True),
+                                    y='TECNICO',
+                                    x='COSTO_TOTAL',
+                                    title='Costos Acumulados por Técnico',
+                                    labels={'TECNICO': 'Técnico', 'COSTO_TOTAL': 'Costo Total (USD)'},
+                                    color='TECNICO',
+                                    color_discrete_map=colores_tecnicos,
+                                    orientation='h')
+                        
+                        # Añadir anotaciones con los valores
+                        fig.update_traces(texttemplate='$%{x:,.2f}', textposition='outside')
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # --- EXPLICACIÓN DEL CÁLCULO ---
+                    with st.expander("ℹ️ Información sobre el cálculo de costos"):
+                        st.markdown("""
+                        ### 📊 **Cálculo de Costos de Horas Extras**
+                        
+                        #### **Proceso de cálculo:**
+                        1. **Detección de horas extras:** Solo se consideran registros con `H_EXTRA_MIN > 0`
+                        2. **Conversión a horas:** Minutos ÷ 60
+                        3. **Asignación por técnico:** Cada técnico recibe las horas **COMPLETAS** de la orden
+                        4. **Obtención de costos:** Se obtienen de la hoja 'PERSONAL'
+                        5. **Tipos de hora extra:**
+                           - **50%:** Cantidad de horas extras × 'VALOR DE HORAS AL 50%'
+                           - **100%:** Cantidad de horas extras × 'VALOR DE HORAS AL 100%'
+                        
+                        #### **Ejemplo según especificaciones:**
+                        - **Técnico:** PEREZ BAJAÑA JUAN JOSE
+                        - **Horas extras trabajadas:** 2 horas (50%)
+                        - **Costo por hora extra:** $3,44 (de la hoja 'PERSONAL')
+                        - **Costo total:** 2 horas × $3,44 = **$6,88**
+                        
+                        #### **Modificación en asignación de horas:**
+                        **Antes:** Si una orden tenía 2 técnicos y 120 minutos extras, cada uno recibía 60 minutos.  
+                        **Ahora:** Si una orden tiene 2 técnicos y 120 minutos extras, **cada técnico recibe 120 minutos** (horas completas).
+                        
+                        #### **Estructura esperada en hoja 'PERSONAL':**
+                        1. Columna con nombres de técnicos (ej: 'APELLIDO Y NOMBRE')
+                        2. Columna con costo de horas al 50% (ej: 'VALOR DE HORAS AL 50%')
+                        3. Columna con costo de horas al 100% (ej: 'VALOR DE HORAS AL 100%')
+                        """)
+                        
+            elif filtered_data.empty:
+                st.info("No hay datos filtrados para mostrar.")
+            else:
+                st.warning("No se pudieron cargar los datos del personal. La pestaña de costos no está disponible.")
+                st.info("""
+                Para habilitar la pestaña de costos, asegúrate de:
+                1. Tener acceso a la hoja 'PERSONAL' en el Google Sheet
+                2. Que la hoja 'PERSONAL' contenga las columnas necesarias
+                3. Que los datos del personal estén correctamente formateados
+                """)
+                
     else:
         st.info("Por favor, carga datos para comenzar.")
         
@@ -1320,6 +2052,7 @@ def main():
         
         2. **Estructura del archivo:**
            - Los datos deben estar en una hoja llamada 'DATAMTTO'
+           - Los datos del personal deben estar en una hoja llamada 'PERSONAL'
            - Incluir columnas como: FECHA DE INICIO, FECHA DE FIN, EQUIPO, CONJUNTO, TIPO DE MTTO, RESPONSABLE, etc.
         
         3. **Actualizaciones automáticas:**
