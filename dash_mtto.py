@@ -2341,11 +2341,11 @@ def main():
                             help="Órdenes con estado 'CULMINADA' del plan para 2026")
                 
                 with col3:
-                    st.metric("Órdenes Pendientes", f"{total_pendiente}",
+                    st.metric("Órdenes Planificadas Retrasadas", f"{total_pendiente}",
                             help="Órdenes PENDIENTES con fecha ≤ hoy")
                 
                 with col4:
-                    st.metric("Órdenes por Hacer", f"{total_por_hacer}",
+                    st.metric("Órdenes Planificadas Pendientes", f"{total_por_hacer}",
                             help="Órdenes PENDIENTES con fecha > hoy")
                 
                 with col5:
@@ -2374,21 +2374,21 @@ def main():
                 fig1.add_trace(go.Bar(
                     x=distribucion_data['MES_NOMBRE'],
                     y=distribucion_data['TOTAL_POR_HACER'],
-                    name='Por Hacer',
-                    marker_color='#d3d3d3',  # Gris
+                    name='Pendientes',
+                    marker_color="#52b3f3",  # Gris
                     text=distribucion_data['TOTAL_POR_HACER'],
                     textposition='inside',
-                    textfont=dict(size=16, color='black'),
+                    textfont=dict(size=18, color='black'),
                 ))
                 
                 fig1.add_trace(go.Bar(
                     x=distribucion_data['MES_NOMBRE'],
                     y=distribucion_data['TOTAL_PENDIENTE'],
-                    name='Pendientes',
+                    name='Retrasadas',
                     marker_color='#FFA500',  # Naranja
                     text=distribucion_data['TOTAL_PENDIENTE'],
                     textposition='inside',
-                    textfont=dict(size=16, color='black'),
+                    textfont=dict(size=18, color='black'),
                 ))
                 
                 fig1.add_trace(go.Bar(
@@ -2398,7 +2398,7 @@ def main():
                     marker_color='#32CD32',  # Verde
                     text=distribucion_data['TOTAL_CULMINADO'],
                     textposition='inside',
-                    textfont=dict(size=16, color='black'),
+                    textfont=dict(size=18, color='black'),
                 ))
                 
                 # Añadir anotaciones de porcentaje de cumplimiento
@@ -2427,7 +2427,7 @@ def main():
                         )
                 
                 fig1.update_layout(
-                    title='Distribución de Órdenes por Mes (Culminadas + Pendientes + Por Hacer)',
+                    title='Distribución de Órdenes por Mes (Culminadas + Retrasadas + Pendientes)',
                     xaxis_title='Mes',
                     yaxis_title='Número de Órdenes',
                     barmode='stack',
@@ -2490,14 +2490,14 @@ def main():
                 
                 with col1:
                     # Gráfico de torta para estado general
-                    estado_labels = ['Culminadas', 'Pendientes', 'Por Hacer']
+                    estado_labels = ['Culminadas', 'Retrasadas', 'Pendientes']
                     estado_values = [total_culminado, total_pendiente, total_por_hacer]
                     
                     fig2 = go.Figure(data=[go.Pie(
                         labels=estado_labels,
                         values=estado_values,
                         hole=0.4,
-                        marker_colors=['#32CD32', '#FFA500', '#d3d3d3'],
+                        marker_colors=['#32CD32', '#FFA500', '#52b3f3'],
                         textinfo='label+percent+value',
                         hovertemplate='<b>%{label}</b><br>' +
                                     'Cantidad: %{value}<br>' +
