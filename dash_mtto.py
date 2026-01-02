@@ -2416,8 +2416,8 @@ def main():
                     y=monthly_plan_data['TOTAL_PLANIFICADAS'],
                     name='Total Planificado',
                     mode='lines+markers',
-                    line=dict(color='black', width=3, dash='dash'),
-                    marker=dict(size=8, color='black'),
+                    line=dict(color='blue', width=3, dash='dash'),
+                    marker=dict(size=8, color='blue'),
                     hovertemplate='<b>%{x}</b><br>Total Planificado: %{y}<extra></extra>'
                 ))
                 
