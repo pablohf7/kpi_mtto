@@ -560,7 +560,7 @@ def clean_and_prepare_data(df):
             axis=1
         )
     else:
-        df_clean['TR_MIN'] = df_clean['TR_MIN_CALCULado']
+        df_clean['TR_MIN'] = df_clean['TR_MIN_CALCULADO']
     
     # Asegurar que las columnas numéricas sean numéricas
     numeric_columns = ['TR_MIN', 'TFC_MIN', 'TFS_MIN', 'TDISPONIBLE', 'TIEMPO_PROG_MIN', 'H_EXTRA_MIN']
@@ -829,13 +829,15 @@ def get_weekly_emergency_data(df):
 # Función para obtener datos mensuales de cumplimiento del plan para 2026 - MODIFICADA CON LAS MEJORAS
 def get_monthly_plan_data(df, year=2026):
     """Obtiene datos mensuales para el cumplimiento del plan incluyendo:
-    - Órdenes culminadas: tienen estado 'CULMINADA'
-    - Órdenes pendientes: tienen fecha de inicio igual o anterior a fecha actual y estado 'PENDIENTE'
-    - Órdenes por hacer: tienen estado 'PENDIENTE' y fecha de inicio mayor a fecha actual"""
+    - Órdenes planificadas: Todas las órdenes de tipo PREVENTIVO, BASADO EN CONDICIÓN y MEJORA DE SISTEMA
+    - Órdenes retrasadas: con status 'PENDIENTE' y fecha menor a la fecha actual
+    - Órdenes proyectadas: con status 'PENDIENTE' y fecha mayor o igual a la fecha actual
+    - Órdenes culminadas: con status 'CULMINADO'"""
+    
     # Crear un DataFrame base con todos los meses de 2026
     meses_todos = [
         (1, 'Enero'), (2, 'Febrero'), (3, 'Marzo'), (4, 'Abril'), (5, 'Mayo'), (6, 'Junio'),
-        (7, 'Julio'), (8, 'Agordo'), (9, 'Septiembre'), (10, 'Octubre'), (11, 'Noviembre'), (12, 'Diciembre')
+        (7, 'Julio'), (8, 'Agosto'), (9, 'Septiembre'), (10, 'Octubre'), (11, 'Noviembre'), (12, 'Diciembre')
     ]
     
     monthly_data = pd.DataFrame(meses_todos, columns=['MES', 'MES_NOMBRE'])
@@ -843,12 +845,11 @@ def get_monthly_plan_data(df, year=2026):
     monthly_data['MES_ORDEN'] = monthly_data['MES']
     
     # Inicializar todas las columnas con 0
-    monthly_data['TOTAL_PLANIFICADO'] = 0
-    monthly_data['TOTAL_CULMINADO'] = 0
-    monthly_data['TOTAL_PENDIENTE'] = 0
-    monthly_data['TOTAL_POR_HACER'] = 0
+    monthly_data['TOTAL_PLANIFICADAS'] = 0
+    monthly_data['ORDENES_CULMINADAS'] = 0
+    monthly_data['ORDENES_RETRASADAS'] = 0
+    monthly_data['ORDENES_PROYECTADAS'] = 0
     monthly_data['CUMPLIMIENTO_PCT'] = 0
-    monthly_data['AVANCE_PCT'] = 0
     
     if df.empty or 'FECHA_DE_INICIO' not in df.columns or 'TIPO DE MTTO' not in df.columns:
         return monthly_data
@@ -870,87 +871,85 @@ def get_monthly_plan_data(df, year=2026):
     
     # Obtener fecha actual
     fecha_actual = datetime.now().date()
+    df_plan['FECHA_INICIO_DATE'] = df_plan['FECHA_DE_INICIO'].dt.date
     
-    # Verificar si existe columna STATUS
+    # Verificar si existe columna STATUS y normalizarla
     if 'STATUS' not in df_plan.columns:
         # Si no existe columna STATUS, todas se consideran culminadas
-        df_plan['STATUS'] = 'CULMINADA'
+        df_plan['STATUS_NORM'] = 'CULMINADO'
+    else:
+        # Normalizar el estado (convertir a mayúsculas, quitar espacios, manejar variantes)
+        df_plan['STATUS_NORM'] = df_plan['STATUS'].astype(str).str.upper().str.strip()
+        # Aceptar tanto 'CULMINADO' como 'CULMINADA'
+        df_plan.loc[df_plan['STATUS_NORM'].str.contains('CULMINAD'), 'STATUS_NORM'] = 'CULMINADO'
     
     # Clasificar órdenes según las nuevas definiciones
-    # 1. Órdenes culminadas
-    mask_culminadas = df_plan['STATUS'] == 'CULMINADA'
+    # 1. Órdenes culminadas (con status 'CULMINADO')
+    mask_culminadas = df_plan['STATUS_NORM'] == 'CULMINADO'
     
-    # 2. Órdenes pendientes: estado PENDIENTE y fecha de inicio <= fecha actual
-    df_plan['FECHA_INICIO_DATE'] = df_plan['FECHA_DE_INICIO'].dt.date
-    mask_pendientes = (df_plan['STATUS'] == 'PENDIENTE') & (df_plan['FECHA_INICIO_DATE'] <= fecha_actual)
+    # 2. Órdenes retrasadas (con status 'PENDIENTE' y menor a la fecha actual)
+    mask_retrasadas = (df_plan['STATUS_NORM'] == 'PENDIENTE') & (df_plan['FECHA_INICIO_DATE'] < fecha_actual)
     
-    # 3. Órdenes por hacer: estado PENDIENTE y fecha de inicio > fecha actual
-    mask_por_hacer = (df_plan['STATUS'] == 'PENDIENTE') & (df_plan['FECHA_INICIO_DATE'] > fecha_actual)
+    # 3. Órdenes proyectadas (con status 'PENDIENTE' y mayor o igual a la fecha actual)
+    mask_proyectadas = (df_plan['STATUS_NORM'] == 'PENDIENTE') & (df_plan['FECHA_INICIO_DATE'] >= fecha_actual)
     
     # Agrupar por mes para cada categoría
-    # Total planificado (todas las órdenes)
+    # Total planificadas (todas las órdenes)
     monthly_real_data = df_plan.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
         'TIPO DE MTTO': 'count'
     }).reset_index()
-    monthly_real_data = monthly_real_data.rename(columns={'TIPO DE MTTO': 'TOTAL_PLANIFICADO'})
+    monthly_real_data = monthly_real_data.rename(columns={'TIPO DE MTTO': 'TOTAL_PLANIFICADAS'})
     
     # Órdenes culminadas
     df_culminadas = df_plan[mask_culminadas]
     monthly_culminadas = df_culminadas.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
         'TIPO DE MTTO': 'count'
     }).reset_index()
-    monthly_culminadas = monthly_culminadas.rename(columns={'TIPO DE MTTO': 'TOTAL_CULMINADO'})
+    monthly_culminadas = monthly_culminadas.rename(columns={'TIPO DE MTTO': 'ORDENES_CULMINADAS'})
     
-    # Órdenes pendientes
-    df_pendientes = df_plan[mask_pendientes]
-    monthly_pendientes = df_pendientes.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
+    # Órdenes retrasadas
+    df_retrasadas = df_plan[mask_retrasadas]
+    monthly_retrasadas = df_retrasadas.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
         'TIPO DE MTTO': 'count'
     }).reset_index()
-    monthly_pendientes = monthly_pendientes.rename(columns={'TIPO DE MTTO': 'TOTAL_PENDIENTE'})
+    monthly_retrasadas = monthly_retrasadas.rename(columns={'TIPO DE MTTO': 'ORDENES_RETRASADAS'})
     
-    # Órdenes por hacer
-    df_por_hacer = df_plan[mask_por_hacer]
-    monthly_por_hacer = df_por_hacer.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
+    # Órdenes proyectadas
+    df_proyectadas = df_plan[mask_proyectadas]
+    monthly_proyectadas = df_proyectadas.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
         'TIPO DE MTTO': 'count'
     }).reset_index()
-    monthly_por_hacer = monthly_por_hacer.rename(columns={'TIPO DE MTTO': 'TOTAL_POR_HACER'})
+    monthly_proyectadas = monthly_proyectadas.rename(columns={'TIPO DE MTTO': 'ORDENES_PROYECTADAS'})
     
     # Combinar datos reales con la estructura base
     for _, row in monthly_real_data.iterrows():
         mes = row['MES']
         mask = monthly_data['MES'] == mes
-        monthly_data.loc[mask, 'TOTAL_PLANIFICADO'] = row['TOTAL_PLANIFICADO']
+        monthly_data.loc[mask, 'TOTAL_PLANIFICADAS'] = row['TOTAL_PLANIFICADAS']
     
     for _, row in monthly_culminadas.iterrows():
         mes = row['MES']
         mask = monthly_data['MES'] == mes
-        monthly_data.loc[mask, 'TOTAL_CULMINADO'] = row['TOTAL_CULMINADO']
+        monthly_data.loc[mask, 'ORDENES_CULMINADAS'] = row['ORDENES_CULMINADAS']
     
-    # Combinar datos de pendientes
-    if not monthly_pendientes.empty:
-        for _, row in monthly_pendientes.iterrows():
+    # Combinar datos de retrasadas
+    if not monthly_retrasadas.empty:
+        for _, row in monthly_retrasadas.iterrows():
             mes = row['MES']
             mask = monthly_data['MES'] == mes
-            monthly_data.loc[mask, 'TOTAL_PENDIENTE'] = row['TOTAL_PENDIENTE']
+            monthly_data.loc[mask, 'ORDENES_RETRASADAS'] = row['ORDENES_RETRASADAS']
     
-    # Combinar datos de por hacer
-    if not monthly_por_hacer.empty:
-        for _, row in monthly_por_hacer.iterrows():
+    # Combinar datos de proyectadas
+    if not monthly_proyectadas.empty:
+        for _, row in monthly_proyectadas.iterrows():
             mes = row['MES']
             mask = monthly_data['MES'] == mes
-            monthly_data.loc[mask, 'TOTAL_POR_HACER'] = row['TOTAL_POR_HACER']
+            monthly_data.loc[mask, 'ORDENES_PROYECTADAS'] = row['ORDENES_PROYECTADAS']
     
-    # Calcular porcentaje de cumplimiento (solo culminadas / total planificado)
+    # Calcular porcentaje de cumplimiento (culminadas / total planificadas)
     monthly_data['CUMPLIMIENTO_PCT'] = monthly_data.apply(
-        lambda row: (row['TOTAL_CULMINADO'] / row['TOTAL_PLANIFICADO']) * 100 
-        if row['TOTAL_PLANIFICADO'] > 0 else 0,
-        axis=1
-    )
-    
-    # Calcular porcentaje de avance (culminadas + pendientes) / total planificado
-    monthly_data['AVANCE_PCT'] = monthly_data.apply(
-        lambda row: ((row['TOTAL_CULMINADO'] + row['TOTAL_PENDIENTE']) / row['TOTAL_PLANIFICADO']) * 100 
-        if row['TOTAL_PLANIFICADO'] > 0 else 0,
+        lambda row: (row['ORDENES_CULMINADAS'] / row['TOTAL_PLANIFICADAS']) * 100 
+        if row['TOTAL_PLANIFICADAS'] > 0 else 0,
         axis=1
     )
     
@@ -2243,7 +2242,7 @@ def main():
                 3. Que los datos del personal estén correctamente formateados
                 """)
         
-        # Pestaña Cumplimiento del Plan - MODIFICADA según las especificaciones
+        # Pestaña Cumplimiento del Plan - MEJORADA con las 4 categorías especificadas
         with tab9:
             st.header("📋 Cumplimiento del Plan de Mantenimiento 2026")
             
@@ -2260,42 +2259,47 @@ def main():
                 #### **Período analizado:**
                 - Año 2026 completo (todos los meses)
                 
-                #### **Nuevas definiciones (MEJORA):**
+                #### **Definiciones:**
                 ```
-                1. ÓRDENES CULMINADAS:
-                   - Tienen el estado 'CULMINADA'
+                1. ÓRDENES PLANIFICADAS:
+                   - Todas las órdenes de los tipos especificados programadas para el mes
                 
-                2. ÓRDENES PENDIENTES:
-                   - Tienen estado 'PENDIENTE'
-                   - Tienen fecha de inicio IGUAL O ANTERIOR a la fecha actual
+                2. ÓRDENES CULMINADAS:
+                   - Tienen el estado 'CULMINADO' (también acepta 'CULMINADA')
                 
-                3. ÓRDENES POR HACER:
+                3. ÓRDENES RETRASADAS:
                    - Tienen estado 'PENDIENTE'
-                   - Tienen fecha de inicio MAYOR a la fecha actual
+                   - Tienen fecha de inicio ANTERIOR a la fecha actual
+                
+                4. ÓRDENES PROYECTADAS:
+                   - Tienen estado 'PENDIENTE'
+                   - Tienen fecha de inicio MAYOR O IGUAL a la fecha actual
                 ```
                 
                 #### **Fórmulas de cálculo:**
                 ```
-                TOTAL_PLANIFICADO = Total de órdenes programadas para el mes
+                TOTAL_PLANIFICADAS = Total de órdenes programadas para el mes
                 
-                TOTAL_CULMINADO = Órdenes con STATUS = 'CULMINADA'
+                CULMINADAS = Órdenes con STATUS = 'CULMINADO'
                 
-                TOTAL_PENDIENTE = Órdenes PENDIENTES con fecha ≤ hoy
+                RETRASADAS = Órdenes PENDIENTES con fecha < hoy
                 
-                TOTAL_POR_HACER = Órdenes PENDIENTES con fecha > hoy
+                PROYECTADAS = Órdenes PENDIENTES con fecha >= hoy
                 
-                Cumplimiento % = (TOTAL_CULMINADO / TOTAL_PLANIFICADO) × 100%
+                Cumplimiento % = (CULMINADAS / TOTAL_PLANIFICADAS) × 100%
                 
-                Estado del Plan = Evaluación basada en el % de cumplimiento
+                Verificación: TOTAL_PLANIFICADAS = CULMINADAS + RETRASADAS + PROYECTADAS
                 ```
                 
                 #### **Interpretación de colores en gráficos:**
                 - 🟢 **Verde:** Órdenes culminadas (completadas)
-                - 🟠 **Naranja:** Órdenes pendientes (en proceso)
-                - ⚪ **Gris:** Órdenes por hacer (aún no iniciadas)
+                - 🟠 **Naranja:** Órdenes retrasadas (pendientes con fecha pasada)
+                - 🔵 **Azul:** Órdenes proyectadas (pendientes con fecha futura)
+                - ⚫ **Gris:** Total planificado (línea de referencia)
                 
                 #### **Objetivos de desempeño:**
                 - **Cumplimiento mínimo aceptable:** 80%
+                - **Cumplimiento objetivo:** 90%
                 """)
             
             # Obtener datos de cumplimiento del plan para 2026
@@ -2303,107 +2307,123 @@ def main():
             
             if not monthly_plan_data.empty:
                 # Calcular indicadores generales del plan
-                total_planificado = monthly_plan_data['TOTAL_PLANIFICADO'].sum()
-                total_culminado = monthly_plan_data['TOTAL_CULMINADO'].sum()
-                total_pendiente = monthly_plan_data['TOTAL_PENDIENTE'].sum()
-                total_por_hacer = monthly_plan_data['TOTAL_POR_HACER'].sum()
+                total_planificadas = monthly_plan_data['TOTAL_PLANIFICADAS'].sum()
+                total_culminadas = monthly_plan_data['ORDENES_CULMINADAS'].sum()
+                total_retrasadas = monthly_plan_data['ORDENES_RETRASADAS'].sum()
+                total_proyectadas = monthly_plan_data['ORDENES_PROYECTADAS'].sum()
                 
                 # Verificar que la suma de categorías sea igual al total planificado
-                suma_categorias = total_culminado + total_pendiente + total_por_hacer
+                suma_categorias = total_culminadas + total_retrasadas + total_proyectadas
                 
                 # Calcular porcentaje de cumplimiento
-                cumplimiento_general = (total_culminado / total_planificado * 100) if total_planificado > 0 else 0
+                cumplimiento_general = (total_culminadas / total_planificadas * 100) if total_planificadas > 0 else 0
                 
-                # 3. Evaluar estado del Plan basado en el cumplimiento de órdenes culminadas
+                # 2. Evaluar estado del Plan basado en el cumplimiento
                 if cumplimiento_general >= 90:
                     estado_plan = "🟢 Excelente"
                     estado_color = "green"
+                    estado_desc = "El plan se está cumpliendo de manera excelente (>90%)"
                 elif cumplimiento_general >= 80:
                     estado_plan = "🟡 Bueno"
                     estado_color = "orange"
+                    estado_desc = "El plan se está cumpliendo adecuadamente (80-90%)"
                 elif cumplimiento_general >= 70:
                     estado_plan = "🟠 Regular"
                     estado_color = "#FF8C00"  # naranja oscuro
+                    estado_desc = "El plan necesita atención (70-80%)"
                 else:
                     estado_plan = "🔴 Crítico"
                     estado_color = "red"
+                    estado_desc = "El plan requiere intervención inmediata (<70%)"
                 
                 # Mostrar indicadores generales (6 columnas con las nuevas definiciones)
                 st.subheader("📊 Indicadores Generales del Plan 2026")
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
                 
                 with col1:
-                    st.metric("Total Órdenes Planificadas", f"{total_planificado}", 
+                    st.metric("Total Planificadas", f"{total_planificadas}", 
                             help="Órdenes de tipo PREVENTIVO, BASADO EN CONDICIÓN y MEJORA DE SISTEMA para 2026")
                 
                 with col2:
-                    st.metric("Total Órdenes Culminadas", f"{total_culminado}",
-                            help="Órdenes con estado 'CULMINADA' del plan para 2026")
+                    st.metric("Órdenes Culminadas", f"{total_culminadas}",
+                            help="Órdenes con estado 'CULMINADO' del plan para 2026")
                 
                 with col3:
-                    st.metric("Órdenes Planificadas Retrasadas", f"{total_pendiente}",
-                            help="Órdenes PENDIENTES con fecha ≤ hoy")
+                    st.metric("Órdenes Retrasadas", f"{total_retrasadas}",
+                            help="Órdenes PENDIENTES con fecha < hoy")
                 
                 with col4:
-                    st.metric("Órdenes Planificadas Pendientes", f"{total_por_hacer}",
-                            help="Órdenes PENDIENTES con fecha > hoy")
+                    st.metric("Órdenes Proyectadas", f"{total_proyectadas}",
+                            help="Órdenes PENDIENTES con fecha >= hoy")
                 
                 with col5:
-                    st.metric("Cumplimiento General", f"{cumplimiento_general:.1f}%",
+                    st.metric("Cumplimiento", f"{cumplimiento_general:.1f}%",
                             delta=None, delta_color="normal")
                 
                 with col6:
-                    # 3. Estado del Plan evaluado por cumplimiento (culminadas/planificadas)
+                    # Estado del Plan
                     st.markdown(f"**Estado del Plan**")
                     st.markdown(f"<h3 style='color:{estado_color};'>{estado_plan}</h3>", unsafe_allow_html=True)
+                    st.caption(estado_desc)
                 
                 # Información de verificación
-                if abs(suma_categorias - total_planificado) > 0.1:  # Tolerancia pequeña para decimales
-                    st.warning(f"⚠️ **Nota:** La suma de categorías ({suma_categorias}) no coincide exactamente con el total planificado ({total_planificado}). Esto puede deberse a órdenes con estados diferentes a 'CULMINADA' o 'PENDIENTE'.")
+                if abs(suma_categorias - total_planificadas) > 0.1:  # Tolerancia pequeña para decimales
+                    st.warning(f"⚠️ **Nota:** La suma de categorías ({suma_categorias}) no coincide exactamente con el total planificado ({total_planificadas}). Esto puede deberse a órdenes con estados diferentes a 'CULMINADO' o 'PENDIENTE'.")
                 
-                # Gráfico 1: Distribución mensual (Culminadas vs Pendientes vs Por hacer)
+                # Gráfico 1: Distribución mensual (Culminadas vs Retrasadas vs Proyectadas)
                 st.subheader("📊 Distribución Mensual del Plan 2026")
                 
-                # Crear datos para gráfico de distribución
-                distribucion_data = monthly_plan_data.copy()
-                
-                # Usar las columnas calculadas por la función mejorada
+                # Crear gráfico de barras apiladas con las 4 categorías
                 fig1 = go.Figure()
                 
                 # Barras apiladas con las nuevas definiciones
                 fig1.add_trace(go.Bar(
-                    x=distribucion_data['MES_NOMBRE'],
-                    y=distribucion_data['TOTAL_POR_HACER'],
-                    name='Pendientes',
-                    marker_color="#52b3f3",  # Gris
-                    text=distribucion_data['TOTAL_POR_HACER'],
+                    x=monthly_plan_data['MES_NOMBRE'],
+                    y=monthly_plan_data['ORDENES_PROYECTADAS'],
+                    name='Proyectadas',
+                    marker_color="#52b3f3",  # Azul
+                    text=monthly_plan_data['ORDENES_PROYECTADAS'],
                     textposition='inside',
-                    textfont=dict(size=18, color='black'),
+                    textfont=dict(size=14, color='white'),
+                    hovertemplate='<b>%{x}</b><br>Proyectadas: %{y}<extra></extra>'
                 ))
                 
                 fig1.add_trace(go.Bar(
-                    x=distribucion_data['MES_NOMBRE'],
-                    y=distribucion_data['TOTAL_PENDIENTE'],
+                    x=monthly_plan_data['MES_NOMBRE'],
+                    y=monthly_plan_data['ORDENES_RETRASADAS'],
                     name='Retrasadas',
                     marker_color='#FFA500',  # Naranja
-                    text=distribucion_data['TOTAL_PENDIENTE'],
+                    text=monthly_plan_data['ORDENES_RETRASADAS'],
                     textposition='inside',
-                    textfont=dict(size=18, color='black'),
+                    textfont=dict(size=14, color='white'),
+                    hovertemplate='<b>%{x}</b><br>Retrasadas: %{y}<extra></extra>'
                 ))
                 
                 fig1.add_trace(go.Bar(
-                    x=distribucion_data['MES_NOMBRE'],
-                    y=distribucion_data['TOTAL_CULMINADO'],
+                    x=monthly_plan_data['MES_NOMBRE'],
+                    y=monthly_plan_data['ORDENES_CULMINADAS'],
                     name='Culminadas',
                     marker_color='#32CD32',  # Verde
-                    text=distribucion_data['TOTAL_CULMINADO'],
+                    text=monthly_plan_data['ORDENES_CULMINADAS'],
                     textposition='inside',
-                    textfont=dict(size=18, color='black'),
+                    textfont=dict(size=14, color='white'),
+                    hovertemplate='<b>%{x}</b><br>Culminadas: %{y}<extra></extra>'
+                ))
+                
+                # Añadir línea para el total planificado
+                fig1.add_trace(go.Scatter(
+                    x=monthly_plan_data['MES_NOMBRE'],
+                    y=monthly_plan_data['TOTAL_PLANIFICADAS'],
+                    name='Total Planificado',
+                    mode='lines+markers',
+                    line=dict(color='black', width=3, dash='dash'),
+                    marker=dict(size=8, color='black'),
+                    hovertemplate='<b>%{x}</b><br>Total Planificado: %{y}<extra></extra>'
                 ))
                 
                 # Añadir anotaciones de porcentaje de cumplimiento
-                for i, row in distribucion_data.iterrows():
-                    if row['TOTAL_PLANIFICADO'] > 0:
+                for i, row in monthly_plan_data.iterrows():
+                    if row['TOTAL_PLANIFICADAS'] > 0:
                         cumplimiento_mensual = row['CUMPLIMIENTO_PCT']
                         
                         # Determinar color del texto según cumplimiento
@@ -2419,15 +2439,15 @@ def main():
                         # Anotación para cumplimiento
                         fig1.add_annotation(
                             x=row['MES_NOMBRE'],
-                            y=row['TOTAL_PLANIFICADO'] + (row['TOTAL_PLANIFICADO'] * 0.05),
-                            text=f"{cumplimiento_mensual:.1f}%",
+                            y=row['TOTAL_PLANIFICADAS'] + (row['TOTAL_PLANIFICADAS'] * 0.05),
+                            text=f"{cumplimiento_mensual:.0f}%",
                             showarrow=False,
-                            font=dict(size=16, color=color_texto, weight='bold'),
+                            font=dict(size=12, color=color_texto, weight='bold'),
                             yshift=5
                         )
                 
                 fig1.update_layout(
-                    title='Distribución de Órdenes por Mes (Culminadas + Retrasadas + Pendientes)',
+                    title='Distribución de Órdenes por Mes (Culminadas + Retrasadas + Proyectadas)',
                     xaxis_title='Mes',
                     yaxis_title='Número de Órdenes',
                     barmode='stack',
@@ -2444,35 +2464,74 @@ def main():
                 
                 st.plotly_chart(fig1, use_container_width=True)
                 
+                # Gráfico 2: Cumplimiento por mes (gráfico de líneas)
+                st.subheader("📈 Cumplimiento por Mes")
+                
+                fig2 = go.Figure()
+                
+                fig2.add_trace(go.Scatter(
+                    x=monthly_plan_data['MES_NOMBRE'],
+                    y=monthly_plan_data['CUMPLIMIENTO_PCT'],
+                    mode='lines+markers+text',
+                    name='% Cumplimiento',
+                    line=dict(color='#32CD32', width=3),
+                    marker=dict(size=10, color='#32CD32'),
+                    text=[f"{val:.0f}%" for val in monthly_plan_data['CUMPLIMIENTO_PCT']],
+                    textposition='top center',
+                    textfont=dict(size=12, color='black'),
+                    hovertemplate='<b>%{x}</b><br>Cumplimiento: %{y:.1f}%<extra></extra>'
+                ))
+                
+                # Añadir línea de referencia al 80%
+                fig2.add_hline(y=80, line_dash="dash", line_color="orange", 
+                              annotation_text="Objetivo 80%", 
+                              annotation_position="bottom right")
+                
+                # Añadir línea de referencia al 90%
+                fig2.add_hline(y=90, line_dash="dash", line_color="green", 
+                              annotation_text="Excelente 90%", 
+                              annotation_position="top right")
+                
+                fig2.update_layout(
+                    title='Porcentaje de Cumplimiento por Mes',
+                    xaxis_title='Mes',
+                    yaxis_title='Cumplimiento (%)',
+                    yaxis_range=[0, 105],
+                    height=400,
+                    showlegend=True
+                )
+                
+                st.plotly_chart(fig2, use_container_width=True)
+                
                 # Tabla detallada - TODOS LOS MESES
                 st.subheader("📋 Detalle por Mes (Todos los meses de 2026)")
                 
                 # Crear tabla formateada con colores según cumplimiento
                 tabla_detalle = monthly_plan_data.copy()
-                tabla_detalle = tabla_detalle[['MES_NOMBRE', 'TOTAL_PLANIFICADO', 'TOTAL_CULMINADO', 
-                                               'TOTAL_PENDIENTE', 'TOTAL_POR_HACER', 'CUMPLIMIENTO_PCT']]
+                tabla_detalle = tabla_detalle[['MES_NOMBRE', 'TOTAL_PLANIFICADAS', 'ORDENES_CULMINADAS', 
+                                               'ORDENES_RETRASADAS', 'ORDENES_PROYECTADAS', 'CUMPLIMIENTO_PCT']]
                 
                 # Función para aplicar color según cumplimiento
                 def color_cumplimiento(val):
                     if isinstance(val, (int, float)):
                         if val >= 90:
-                            return 'background-color: #90EE90'  # verde claro
+                            return 'background-color: #90EE90; color: black'  # verde claro
                         elif val >= 80:
-                            return 'background-color: #FFD700'  # amarillo
+                            return 'background-color: #FFD700; color: black'  # amarillo
                         elif val >= 70:
-                            return 'background-color: #FFA500'  # naranja
+                            return 'background-color: #FFA500; color: black'  # naranja
                         else:
-                            return 'background-color: #FFB6C1'  # rojo claro
+                            return 'background-color: #FFB6C1; color: black'  # rojo claro
                     return ''
                 
                 # Crear DataFrame para mostrar
                 tabla_mostrar = tabla_detalle.copy()
                 tabla_mostrar['CUMPLIMIENTO_PCT'] = tabla_mostrar.apply(
-                    lambda x: f"{x['CUMPLIMIENTO_PCT']:.1f}%" if x['TOTAL_PLANIFICADO'] > 0 else "Sin datos",
+                    lambda x: f"{x['CUMPLIMIENTO_PCT']:.1f}%" if x['TOTAL_PLANIFICADAS'] > 0 else "Sin datos",
                     axis=1
                 )
                 
-                tabla_mostrar.columns = ['Mes', 'Planificadas', 'Culminadas', 'Pendientes', 'Por Hacer', 'Cumplimiento %']
+                tabla_mostrar.columns = ['Mes', 'Planificadas', 'Culminadas', 'Retrasadas', 'Proyectadas', 'Cumplimiento %']
                 
                 # Aplicar estilos a la tabla
                 st.dataframe(
@@ -2483,17 +2542,17 @@ def main():
                     use_container_width=True
                 )
                 
-                # Gráfico 2: Proporción Culminadas vs Pendientes vs Por Hacer (General)
+                # Gráfico 3: Proporción General del Plan 2026
                 st.subheader("🥧 Proporción General del Plan 2026")
                 
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     # Gráfico de torta para estado general
-                    estado_labels = ['Culminadas', 'Retrasadas', 'Pendientes']
-                    estado_values = [total_culminado, total_pendiente, total_por_hacer]
+                    estado_labels = ['Culminadas', 'Retrasadas', 'Proyectadas']
+                    estado_values = [total_culminadas, total_retrasadas, total_proyectadas]
                     
-                    fig2 = go.Figure(data=[go.Pie(
+                    fig3 = go.Figure(data=[go.Pie(
                         labels=estado_labels,
                         values=estado_values,
                         hole=0.4,
@@ -2504,23 +2563,23 @@ def main():
                                     'Porcentaje: %{percent}<extra></extra>'
                     )])
                     
-                    fig2.update_layout(
+                    fig3.update_layout(
                         title='Distribución General del Plan',
-                        height=300
+                        height=400
                     )
                     
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig3, use_container_width=True)
                 
                 with col2:
                     # Gráfico de barras para top meses con mejor cumplimiento
                     # Filtrar meses con órdenes planificadas
-                    meses_con_datos = monthly_plan_data[monthly_plan_data['TOTAL_PLANIFICADO'] > 0].copy()
+                    meses_con_datos = monthly_plan_data[monthly_plan_data['TOTAL_PLANIFICADAS'] > 0].copy()
                     
                     if not meses_con_datos.empty:
                         # Ordenar por porcentaje de cumplimiento (descendente)
                         top_cumplimiento = meses_con_datos.nlargest(5, 'CUMPLIMIENTO_PCT')[['MES_NOMBRE', 'CUMPLIMIENTO_PCT']]
                         
-                        fig3 = px.bar(top_cumplimiento, 
+                        fig4 = px.bar(top_cumplimiento, 
                                     x='CUMPLIMIENTO_PCT', 
                                     y='MES_NOMBRE',
                                     orientation='h',
@@ -2530,14 +2589,14 @@ def main():
                                     color_continuous_scale='Greens',
                                     text='CUMPLIMIENTO_PCT')
                         
-                        fig3.update_traces(texttemplate='%{x:.1f}%', textposition='outside')
-                        fig3.update_layout(height=300)
-                        st.plotly_chart(fig3, use_container_width=True)
+                        fig4.update_traces(texttemplate='%{x:.1f}%', textposition='outside')
+                        fig4.update_layout(height=400)
+                        st.plotly_chart(fig4, use_container_width=True)
                     else:
                         st.info("No hay meses con datos de planificación")
                 
                 # Mostrar información sobre meses sin datos
-                meses_sin_planificadas = monthly_plan_data[monthly_plan_data['TOTAL_PLANIFICADO'] == 0]['MES_NOMBRE'].tolist()
+                meses_sin_planificadas = monthly_plan_data[monthly_plan_data['TOTAL_PLANIFICADAS'] == 0]['MES_NOMBRE'].tolist()
                 if meses_sin_planificadas:
                     st.info(f"**Nota:** Los siguientes meses aún no tienen órdenes planificadas creadas: {', '.join(meses_sin_planificadas)}")
                     
@@ -2547,24 +2606,27 @@ def main():
                     ### **🎯 Mejoras implementadas en esta versión:**
                     
                     #### **1. Definiciones actualizadas:**
-                    - **Órdenes culminadas:** Solo las que tienen estado 'CULMINADA'
-                    - **Órdenes pendientes:** Órdenes con estado 'PENDIENTE' y fecha de inicio ≤ fecha actual
-                    - **Órdenes por hacer:** Órdenes con estado 'PENDIENTE' y fecha de inicio > fecha actual
+                    - **Órdenes planificadas:** Todas las órdenes de mantenimiento planificado programadas
+                    - **Órdenes culminadas:** Solo las que tienen estado 'CULMINADO' (acepta 'CULMINADA')
+                    - **Órdenes retrasadas:** Órdenes con estado 'PENDIENTE' y fecha de inicio < fecha actual
+                    - **Órdenes proyectadas:** Órdenes con estado 'PENDIENTE' y fecha de inicio >= fecha actual
                     
                     #### **2. Cálculos mejorados:**
-                    - La función `get_monthly_plan_data` ahora usa la fecha actual para clasificar
-                    - Se verifica que la suma de categorías coincida con el total planificado
-                    - Se manejan correctamente los casos donde no existe columna 'STATUS'
+                    - Normalización de estados (acepta 'CULMINADO' y 'CULMINADA')
+                    - Uso de la fecha actual para clasificar retrasadas vs proyectadas
+                    - Verificación de consistencia en los datos
                     
                     #### **3. Visualización mejorada:**
-                    - Se agregó columna específica para "Órdenes por Hacer"
-                    - Se mejoraron los indicadores generales (6 columnas en lugar de 5)
-                    - Se añadió verificación de consistencia en los datos
+                    - Gráfico de barras apiladas con las 4 categorías
+                    - Línea de total planificado como referencia
+                    - Gráfico de cumplimiento por mes con líneas de referencia
+                    - Tabla detallada con colores según cumplimiento
+                    - Gráfico de torta para distribución general
                     
-                    #### **4. Documentación:**
-                    - Se actualizó el texto explicativo con las nuevas definiciones
-                    - Se mejoraron los tooltips y ayudas contextuales
-                    - Se agregó resumen de las mejoras implementadas
+                    #### **4. Información contextual:**
+                    - Indicadores generales con 6 métricas
+                    - Estado del plan con evaluación automática
+                    - Tooltips y ayudas contextuales mejoradas
                     """)
                     
             else:
