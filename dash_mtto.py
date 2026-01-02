@@ -568,10 +568,6 @@ def clean_and_prepare_data(df):
         if col in df_clean.columns:
             df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(0)
     
-    # Filtrar solo registros culminados para análisis
-    if 'STATUS' in df_clean.columns:
-        df_clean = df_clean[df_clean['STATUS'] == 'CULMINADO']
-    
     return df_clean
 
 # Función para calcular métricas basadas en el dataset real
@@ -681,7 +677,7 @@ def calculate_reliability_metrics(df):
     
     return m
 
-# Función para obtener datos semanales
+# Función para obtener datos semanales - MEJORADA para manejar correctamente cambio de año
 def get_weekly_data(df):
     if df.empty or 'FECHA_DE_INICIO' not in df.columns:
         return pd.DataFrame()
@@ -692,7 +688,12 @@ def get_weekly_data(df):
     # Obtener semana del año y año - USAR FECHA_DE_INICIO
     df_weekly['SEMANA'] = df_weekly['FECHA_DE_INICIO'].dt.isocalendar().week
     df_weekly['AÑO'] = df_weekly['FECHA_DE_INICIO'].dt.year
-    df_weekly['SEMANA_STR'] = df_weekly['AÑO'].astype(str) + '-S' + df_weekly['SEMANA'].astype(str).str.zfill(2)
+    
+    # Crear SEMANA_STR con formato AÑO-SEMANA (ej: 2025-S52, 2026-S01)
+    df_weekly['SEMANA_STR'] = df_weekly.apply(
+        lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", 
+        axis=1
+    )
     
     # Agrupar por semana - FILTRAR SOLO CUANDO AFECTA PRODUCCIÓN
     weekly_data = df_weekly[df_weekly['PRODUCCION_AFECTADA'] == 'SI'].groupby(['SEMANA_STR', 'AÑO', 'SEMANA']).agg({
@@ -707,12 +708,12 @@ def get_weekly_data(df):
     weekly_data['DISPO_SEMANAL'] = ((weekly_data['TDISPONIBLE'] - weekly_data['TFS_MIN']) / weekly_data['TDISPONIBLE']) * 100
     
     # Crear columna numérica para ordenar correctamente las semanas
-    weekly_data['SEMANA_NUM'] = weekly_data['AÑO'].astype(str) + weekly_data['SEMANA'].astype(str).str.zfill(2)
+    weekly_data['SEMANA_NUM'] = weekly_data['AÑO'] * 100 + weekly_data['SEMANA']
     weekly_data = weekly_data.sort_values('SEMANA_NUM')
     
     return weekly_data
 
-# Función para obtener datos semanales por técnico (TR_MIN y H_EXTRA_MIN) - CON TÉCNICOS SEPARADOS
+# Función para obtener datos semanales por técnico (TR_MIN y H_EXTRA_MIN) - CON TÉCNICOS SEPARADOS - MEJORADA
 def get_weekly_technician_hours(df):
     if df.empty or 'FECHA_DE_INICIO' not in df.columns or 'RESPONSABLE' not in df.columns:
         return pd.DataFrame()
@@ -726,7 +727,12 @@ def get_weekly_technician_hours(df):
     # Obtener semana del año y año - USAR FECHA_DE_INICIO
     df_weekly['SEMANA'] = df_weekly['FECHA_DE_INICIO'].dt.isocalendar().week
     df_weekly['AÑO'] = df_weekly['FECHA_DE_INICIO'].dt.year
-    df_weekly['SEMANA_STR'] = df_weekly['AÑO'].astype(str) + '-S' + df_weekly['SEMANA'].astype(str).str.zfill(2)
+    
+    # Crear SEMANA_STR con formato AÑO-SEMANA (ej: 2025-S52, 2026-S01)
+    df_weekly['SEMANA_STR'] = df_weekly.apply(
+        lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", 
+        axis=1
+    )
     
     # Agrupar por semana y técnico - TODOS LOS REGISTROS
     weekly_tech_data = df_weekly.groupby(['SEMANA_STR', 'AÑO', 'SEMANA', 'RESPONSABLE']).agg({
@@ -739,7 +745,7 @@ def get_weekly_technician_hours(df):
     weekly_tech_data['H_EXTRA_HORAS'] = weekly_tech_data['H_EXTRA_MIN'] / 60
     
     # Crear columna numérica para ordenar correctamente las semanas
-    weekly_tech_data['SEMANA_NUM'] = weekly_tech_data['AÑO'].astype(str) + weekly_tech_data['SEMANA'].astype(str).str.zfill(2)
+    weekly_tech_data['SEMANA_NUM'] = weekly_tech_data['AÑO'] * 100 + weekly_tech_data['SEMANA']
     weekly_tech_data = weekly_tech_data.sort_values('SEMANA_NUM')
     
     return weekly_tech_data
@@ -767,7 +773,7 @@ def get_accumulated_technician_hours(df):
     
     return tech_data
 
-# Función para obtener datos semanales de correctivos de emergencia (con MTTR)
+# Función para obtener datos semanales de correctivos de emergencia (con MTTR) - MEJORADA
 def get_weekly_emergency_data(df):
     if df.empty or 'FECHA_DE_INICIO' not in df.columns:
         return pd.DataFrame()
@@ -778,7 +784,12 @@ def get_weekly_emergency_data(df):
     # Obtener semana del año y año - USAR FECHA_DE_INICIO
     df_weekly['SEMANA'] = df_weekly['FECHA_DE_INICIO'].dt.isocalendar().week
     df_weekly['AÑO'] = df_weekly['FECHA_DE_INICIO'].dt.year
-    df_weekly['SEMANA_STR'] = df_weekly['AÑO'].astype(str) + '-S' + df_weekly['SEMANA'].astype(str).str.zfill(2)
+    
+    # Crear SEMANA_STR con formato AÑO-SEMANA (ej: 2025-S52, 2026-S01)
+    df_weekly['SEMANA_STR'] = df_weekly.apply(
+        lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", 
+        axis=1
+    )
     
     # Filtrar solo correctivos de emergencia (independientemente de producción afectada)
     df_emergency = df_weekly[df_weekly['TIPO DE MTTO'] == 'CORRECTIVO DE EMERGENCIA'].copy()
@@ -814,13 +825,120 @@ def get_weekly_emergency_data(df):
     )
     
     # Crear columna numérica para ordenar correctamente las semanas
-    weekly_emergency_data['SEMANA_NUM'] = weekly_emergency_data['AÑO'].astype(str) + weekly_emergency_data['SEMANA'].astype(str).str.zfill(2)
+    weekly_emergency_data['SEMANA_NUM'] = weekly_emergency_data['AÑO'] * 100 + weekly_emergency_data['SEMANA']
     weekly_emergency_data = weekly_emergency_data.sort_values('SEMANA_NUM')
     
     return weekly_emergency_data
 
-# Función para aplicar filtros - ACTUALIZADA
-def apply_filters(df, equipo_filter, conjunto_filter, ubicacion_filter, fecha_inicio, fecha_fin):
+# Función para obtener datos mensuales de cumplimiento del plan para 2026 - MODIFICADA
+def get_monthly_plan_data(df, year=2026):
+    """Obtiene datos mensuales para el cumplimiento del plan incluyendo PENDIENTE y CULMINADO"""
+    # Crear un DataFrame base con todos los meses de 2026
+    meses_todos = [
+        (1, 'Enero'), (2, 'Febrero'), (3, 'Marzo'), (4, 'Abril'), (5, 'Mayo'), (6, 'Junio'),
+        (7, 'Julio'), (8, 'Agosto'), (9, 'Septiembre'), (10, 'Octubre'), (11, 'Noviembre'), (12, 'Diciembre')
+    ]
+    
+    monthly_data = pd.DataFrame(meses_todos, columns=['MES', 'MES_NOMBRE'])
+    monthly_data['AÑO'] = year
+    monthly_data['MES_ORDEN'] = monthly_data['MES']
+    
+    # Inicializar todas las columnas con 0
+    monthly_data['TOTAL_PLANIFICADO'] = 0
+    monthly_data['TOTAL_CULMINADO'] = 0
+    monthly_data['TOTAL_PENDIENTE'] = 0
+    monthly_data['CUMPLIMIENTO_PCT'] = 0
+    monthly_data['AVANCE_PCT'] = 0
+    
+    if df.empty or 'FECHA_DE_INICIO' not in df.columns or 'TIPO DE MTTO' not in df.columns:
+        return monthly_data
+    
+    # Filtrar solo órdenes de tipo PREVENTIVO, BASADO EN CONDICIÓN y MEJORA DE SISTEMA
+    tipos_planificados = ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'MEJORA DE SISTEMA']
+    df_plan = df[df['TIPO DE MTTO'].isin(tipos_planificados)].copy()
+    
+    # Filtrar por año 2026
+    df_plan = df_plan[df_plan['FECHA_DE_INICIO'].dt.year == year]
+    
+    if df_plan.empty:
+        return monthly_data
+    
+    # Obtener mes y año
+    df_plan['MES'] = df_plan['FECHA_DE_INICIO'].dt.month
+    df_plan['MES_NOMBRE'] = df_plan['MES'].map(dict(meses_todos))
+    df_plan['AÑO'] = df_plan['FECHA_DE_INICIO'].dt.year
+    
+    # Agrupar por mes para contar todas las órdenes planificadas (TOTAL_PLANIFICADO)
+    monthly_real_data = df_plan.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
+        'TIPO DE MTTO': 'count'
+    }).reset_index()
+    monthly_real_data = monthly_real_data.rename(columns={'TIPO DE MTTO': 'TOTAL_PLANIFICADO'})
+    
+    # Filtrar órdenes culminadas (STATUS = 'CULMINADO')
+    if 'STATUS' in df_plan.columns:
+        df_culminadas = df_plan[df_plan['STATUS'] == 'CULMINADO']
+    else:
+        # Si no hay columna STATUS, asumir que todas están culminadas
+        df_culminadas = df_plan
+    
+    # Agrupar por mes para contar órdenes culminadas
+    monthly_culminadas = df_culminadas.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
+        'TIPO DE MTTO': 'count'
+    }).reset_index()
+    monthly_culminadas = monthly_culminadas.rename(columns={'TIPO DE MTTO': 'TOTAL_CULMINADO'})
+    
+    # Filtrar órdenes pendientes (STATUS = 'PENDIENTE')
+    if 'STATUS' in df_plan.columns:
+        df_pendientes = df_plan[df_plan['STATUS'] == 'PENDIENTE']
+        
+        # Agrupar por mes para contar órdenes pendientes
+        monthly_pendientes = df_pendientes.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
+            'TIPO DE MTTO': 'count'
+        }).reset_index()
+        monthly_pendientes = monthly_pendientes.rename(columns={'TIPO DE MTTO': 'TOTAL_PENDIENTE'})
+    else:
+        # Si no hay columna STATUS, no hay pendientes
+        monthly_pendientes = pd.DataFrame(columns=['AÑO', 'MES', 'MES_NOMBRE', 'TOTAL_PENDIENTE'])
+    
+    # Combinar datos reales con la estructura base
+    for _, row in monthly_real_data.iterrows():
+        mes = row['MES']
+        mask = monthly_data['MES'] == mes
+        monthly_data.loc[mask, 'TOTAL_PLANIFICADO'] = row['TOTAL_PLANIFICADO']
+    
+    for _, row in monthly_culminadas.iterrows():
+        mes = row['MES']
+        mask = monthly_data['MES'] == mes
+        monthly_data.loc[mask, 'TOTAL_CULMINADO'] = row['TOTAL_CULMINADO']
+    
+    # Combinar datos de pendientes
+    if not monthly_pendientes.empty:
+        for _, row in monthly_pendientes.iterrows():
+            mes = row['MES']
+            mask = monthly_data['MES'] == mes
+            monthly_data.loc[mask, 'TOTAL_PENDIENTE'] = row['TOTAL_PENDIENTE']
+    
+    # Calcular porcentaje de cumplimiento (solo culminadas)
+    monthly_data['CUMPLIMIENTO_PCT'] = monthly_data.apply(
+        lambda row: (row['TOTAL_CULMINADO'] / row['TOTAL_PLANIFICADO']) * 100 
+        if row['TOTAL_PLANIFICADO'] > 0 else 0,
+        axis=1
+    )
+    
+    # Calcular porcentaje de avance (culminadas + pendientes)
+    monthly_data['AVANCE_PCT'] = monthly_data.apply(
+        lambda row: ((row['TOTAL_CULMINADO'] + row['TOTAL_PENDIENTE']) / row['TOTAL_PLANIFICADO']) * 100 
+        if row['TOTAL_PLANIFICADO'] > 0 else 0,
+        axis=1
+    )
+    
+    # Ordenar por mes
+    monthly_data = monthly_data.sort_values('MES_ORDEN')
+    
+    return monthly_data
+
+# Función para aplicar filtros - ACTUALIZADA CON FILTRO DE TIPO DE MTTO
+def apply_filters(df, equipo_filter, conjunto_filter, ubicacion_filter, tipo_mtto_filter, fecha_inicio, fecha_fin):
     filtered_df = df.copy()
     
     if equipo_filter != "Todos":
@@ -835,6 +953,10 @@ def apply_filters(df, equipo_filter, conjunto_filter, ubicacion_filter, fecha_in
         if 'UBICACIÓN TÉCNICA' in filtered_df.columns:
             # Convertir a string para comparación
             filtered_df = filtered_df[filtered_df['UBICACIÓN TÉCNICA'].astype(str) == ubicacion_filter]
+    
+    if tipo_mtto_filter != "Todos":
+        # Convertir a string para comparación
+        filtered_df = filtered_df[filtered_df['TIPO DE MTTO'].astype(str) == tipo_mtto_filter]
     
     # Aplicar filtro de fechas - USAR FECHA_DE_INICIO
     if fecha_inicio is not None and fecha_fin is not None:
@@ -972,9 +1094,19 @@ def main():
         conjuntos = ["Todos"] + sorted(conjuntos_str)
         conjunto_filter = st.sidebar.selectbox("Conjunto", conjuntos)
         
-        # Aplicar filtros
+        # 5. FILTRO DE TIPO DE MTTO (NUEVO) - Colocado debajo de Conjunto como solicitado
+        if 'TIPO DE MTTO' in st.session_state.data.columns:
+            tipos_mtto_unique = st.session_state.data['TIPO DE MTTO'].dropna().unique().tolist()
+            tipos_mtto_str = [str(x) for x in tipos_mtto_unique]
+            tipos_mtto = ["Todos"] + sorted(tipos_mtto_str)
+        else:
+            tipos_mtto = ["Todos"]
+        
+        tipo_mtto_filter = st.sidebar.selectbox("Tipo de Mtto", tipos_mtto, key="tipo_mtto_filter")
+        
+        # Aplicar filtros (incluyendo el nuevo filtro de tipo de mtto)
         filtered_data = apply_filters(st.session_state.data, equipo_filter, conjunto_filter, 
-                                      ubicacion_filter, fecha_inicio, fecha_fin)
+                                      ubicacion_filter, tipo_mtto_filter, fecha_inicio, fecha_fin)
         
         # Mostrar información de estado
         st.sidebar.subheader("Estado")
@@ -1006,10 +1138,10 @@ def main():
         </style>
         """, unsafe_allow_html=True)
         
-        # Pestañas - MODIFICADO: agregar nueva pestaña de Costos Horas Extras
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+        # Pestañas - MODIFICADO: agregar nueva pestaña de Cumplimiento del Plan
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
             "Planta", "TFS", "TR", "TFC", "Tipo de Mtto", "Confiabilidad", 
-            "Horas Personal Técnico", "Costos Horas Extras Personal Técnico"
+            "Horas Personal Técnico", "Costos Horas Extras Personal Técnico", "Cumplimiento del Plan"
         ])
         
         # Calcular métricas
@@ -1030,6 +1162,9 @@ def main():
         
         # Calcular costos de horas extras (YA INCLUYE SEPARACIÓN DE TÉCNICOS)
         weekly_costs, accumulated_costs, mensaje_calculo = calculate_overtime_costs(filtered_data, st.session_state.personal_data)
+        
+        # Obtener datos de cumplimiento del plan para 2026
+        monthly_plan_data = get_monthly_plan_data(st.session_state.data, year=2026)
         
         # Pestaña Planta - CORREGIDA
         with tab1:
@@ -1413,7 +1548,10 @@ def main():
                     df_weekly_mtto = filtered_data.copy()
                     df_weekly_mtto['SEMANA'] = df_weekly_mtto['FECHA_DE_INICIO'].dt.isocalendar().week
                     df_weekly_mtto['AÑO'] = df_weekly_mtto['FECHA_DE_INICIO'].dt.year
-                    df_weekly_mtto['SEMANA_STR'] = df_weekly_mtto['AÑO'].astype(str) + '-S' + df_weekly_mtto['SEMANA'].astype(str).str.zfill(2)
+                    df_weekly_mtto['SEMANA_STR'] = df_weekly_mtto.apply(
+                        lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", 
+                        axis=1
+                    )
                     
                     # Agrupar por semana y tipo de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO
                     tipo_mtto_semana = df_weekly_mtto.groupby(['SEMANA_STR', 'TIPO DE MTTO'])['TR_MIN'].sum().reset_index()
@@ -2040,7 +2178,291 @@ def main():
                 2. Que la hoja 'PERSONAL' contenga las columnas necesarias
                 3. Que los datos del personal estén correctamente formateados
                 """)
+        
+        # Pestaña Cumplimiento del Plan - MODIFICADA según las especificaciones
+        with tab9:
+            st.header("📋 Cumplimiento del Plan de Mantenimiento 2026")
+            
+            # 1. Texto explicativo desplegable (colapsado por defecto)
+            with st.expander("ℹ️ **Información sobre el cálculo del cumplimiento**", expanded=False):
+                st.markdown("""
+                ### 📊 **Cálculo del Cumplimiento del Plan**
                 
+                #### **Órdenes consideradas:**
+                - **PREVENTIVO**
+                - **BASADO EN CONDICIÓN**
+                - **MEJORA DE SISTEMA**
+                
+                #### **Período analizado:**
+                - Año 2026 completo (todos los meses)
+                
+                #### **Fórmulas de cálculo:**
+                ```
+                TOTAL_PLANIFICADO = Total de órdenes programadas para el mes
+                
+                TOTAL_CULMINADO = Órdenes con STATUS = 'CULMINADO'
+                
+                Cumplimiento % = (TOTAL_CULMINADO / TOTAL_PLANIFICADO) × 100%
+                
+                Estado del Plan = Evaluación basada en el % de cumplimiento
+                ```
+                
+                #### **Interpretación de colores en gráficos:**
+                - 🟢 **Verde:** Órdenes culminadas (completadas)
+                - 🟠 **Naranja:** Órdenes pendientes (en proceso)
+                - ⚪ **Gris:** Órdenes por hacer (aún no iniciadas)
+                
+                #### **Objetivos de desempeño:**
+                - **Cumplimiento mínimo aceptable:** 80%
+                """)
+            
+            # Obtener datos de cumplimiento del plan para 2026
+            monthly_plan_data = get_monthly_plan_data(st.session_state.data, year=2026)
+            
+            if not monthly_plan_data.empty:
+                # Calcular indicadores generales del plan
+                total_planificado = monthly_plan_data['TOTAL_PLANIFICADO'].sum()
+                total_culminado = monthly_plan_data['TOTAL_CULMINADO'].sum()
+                total_pendiente = monthly_plan_data['TOTAL_PENDIENTE'].sum()
+                
+                # Calcular porcentaje de cumplimiento
+                cumplimiento_general = (total_culminado / total_planificado * 100) if total_planificado > 0 else 0
+                
+                # 3. Evaluar estado del Plan basado en el cumplimiento de órdenes culminadas
+                if cumplimiento_general >= 90:
+                    estado_plan = "🟢 Excelente"
+                    estado_color = "green"
+                elif cumplimiento_general >= 80:
+                    estado_plan = "🟡 Bueno"
+                    estado_color = "orange"
+                elif cumplimiento_general >= 70:
+                    estado_plan = "🟠 Regular"
+                    estado_color = "#FF8C00"  # naranja oscuro
+                else:
+                    estado_plan = "🔴 Crítico"
+                    estado_color = "red"
+                
+                # Mostrar indicadores generales (5 columnas en lugar de 6)
+                col1, col2, col3, col4, col5 = st.columns(5)
+                
+                with col1:
+                    st.metric("Total Órdenes Planificadas", f"{total_planificado}", 
+                            help="Órdenes de tipo PREVENTIVO, BASADO EN CONDICIÓN y MEJORA DE SISTEMA para 2026")
+                
+                with col2:
+                    st.metric("Total Órdenes Culminadas", f"{total_culminado}",
+                            help="Órdenes culminadas (STATUS = 'CULMINADO') del plan para 2026")
+                
+                with col3:
+                    st.metric("Total Órdenes Pendientes", f"{total_pendiente}",
+                            help="Órdenes en proceso (STATUS = 'PENDIENTE') del plan para 2026")
+                
+                with col4:
+                    st.metric("Cumplimiento General", f"{cumplimiento_general:.1f}%",
+                            delta=None, delta_color="normal")
+                
+                with col5:
+                    # 3. Estado del Plan evaluado por cumplimiento (culminadas/planificadas)
+                    st.markdown(f"**Estado del Plan**")
+                    st.markdown(f"<h3 style='color:{estado_color};'>{estado_plan}</h3>", unsafe_allow_html=True)
+                
+                # Gráfico 1: Distribución mensual (Culminadas vs Pendientes vs Por hacer)
+                st.subheader("📊 Distribución Mensual del Plan 2026")
+                
+                # Crear datos para gráfico de distribución
+                distribucion_data = monthly_plan_data.copy()
+                distribucion_data['POR_HACER'] = distribucion_data['TOTAL_PLANIFICADO'] - (distribucion_data['TOTAL_CULMINADO'] + distribucion_data['TOTAL_PENDIENTE'])
+                distribucion_data['POR_HACER'] = distribucion_data['POR_HACER'].clip(lower=0)  # Asegurar que no sea negativo
+                
+                fig1 = go.Figure()
+                
+                # Barras apiladas
+                fig1.add_trace(go.Bar(
+                    x=distribucion_data['MES_NOMBRE'],
+                    y=distribucion_data['POR_HACER'],
+                    name='Por Hacer',
+                    marker_color='#d3d3d3',  # Gris
+                    text=distribucion_data['POR_HACER'],
+                    textposition='inside',
+                    textfont=dict(size=20,color='black'),
+                ))
+                
+                fig1.add_trace(go.Bar(
+                    x=distribucion_data['MES_NOMBRE'],
+                    y=distribucion_data['TOTAL_PENDIENTE'],
+                    name='Pendientes',
+                    marker_color='#FFA500',  # Naranja
+                    text=distribucion_data['TOTAL_PENDIENTE'],
+                    textposition='inside',
+                    textfont=dict(size=20,color='black'),
+                ))
+                
+                fig1.add_trace(go.Bar(
+                    x=distribucion_data['MES_NOMBRE'],
+                    y=distribucion_data['TOTAL_CULMINADO'],
+                    name='Culminadas',
+                    marker_color='#32CD32',  # Verde
+                    text=distribucion_data['TOTAL_CULMINADO'],
+                    textposition='inside',
+                    textfont=dict(size=20,color='black'),
+                ))
+                
+                # Añadir anotaciones de porcentaje de cumplimiento
+                for i, row in distribucion_data.iterrows():
+                    if row['TOTAL_PLANIFICADO'] > 0:
+                        cumplimiento_mensual = row['CUMPLIMIENTO_PCT']
+                        
+                        # Determinar color del texto según cumplimiento
+                        if cumplimiento_mensual >= 90:
+                            color_texto = 'green'
+                        elif cumplimiento_mensual >= 80:
+                            color_texto = 'orange'
+                        elif cumplimiento_mensual >= 70:
+                            color_texto = '#FF8C00'
+                        else:
+                            color_texto = 'red'
+                        
+                        # Anotación para cumplimiento
+                        fig1.add_annotation(
+                            x=row['MES_NOMBRE'],
+                            y=row['TOTAL_PLANIFICADO'] + (row['TOTAL_PLANIFICADO'] * 0.05),
+                            text=f"{cumplimiento_mensual:.1f}%",
+                            showarrow=False,
+                            font=dict(size=20, color=color_texto, weight='bold'),
+                            yshift=5
+                        )
+                
+                fig1.update_layout(
+                    title='Distribución de Órdenes por Mes (Culminadas + Pendientes + Por Hacer)',
+                    xaxis_title='Mes',
+                    yaxis_title='Número de Órdenes',
+                    barmode='stack',
+                    hovermode='x unified',
+                    height=500,
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+                
+                st.plotly_chart(fig1, use_container_width=True)
+                
+                # Tabla detallada - TODOS LOS MESES
+                st.subheader("📋 Detalle por Mes (Todos los meses de 2026)")
+                
+                # Crear tabla formateada con colores según cumplimiento
+                tabla_detalle = monthly_plan_data.copy()
+                tabla_detalle = tabla_detalle[['MES_NOMBRE', 'TOTAL_PLANIFICADO', 'TOTAL_CULMINADO', 
+                                               'TOTAL_PENDIENTE', 'CUMPLIMIENTO_PCT']]
+                
+                # Función para aplicar color según cumplimiento
+                def color_cumplimiento(val):
+                    if isinstance(val, (int, float)):
+                        if val >= 90:
+                            return 'background-color: #90EE90'  # verde claro
+                        elif val >= 80:
+                            return 'background-color: #FFD700'  # amarillo
+                        elif val >= 70:
+                            return 'background-color: #FFA500'  # naranja
+                        else:
+                            return 'background-color: #FFB6C1'  # rojo claro
+                    return ''
+                
+                # Crear DataFrame para mostrar
+                tabla_mostrar = tabla_detalle.copy()
+                tabla_mostrar['CUMPLIMIENTO_PCT'] = tabla_mostrar.apply(
+                    lambda x: f"{x['CUMPLIMIENTO_PCT']:.1f}%" if x['TOTAL_PLANIFICADO'] > 0 else "Sin datos",
+                    axis=1
+                )
+                
+                tabla_mostrar.columns = ['Mes', 'Planificadas', 'Culminadas', 'Pendientes', 'Cumplimiento %']
+                
+                # Aplicar estilos a la tabla
+                st.dataframe(
+                    tabla_mostrar.style.applymap(
+                        lambda x: color_cumplimiento(float(x.replace('%', '')) if '%' in str(x) else x), 
+                        subset=['Cumplimiento %']
+                    ),
+                    use_container_width=True
+                )
+                
+                # Gráfico 2: Proporción Culminadas vs Pendientes vs Por Hacer (General)
+                st.subheader("🥧 Proporción General del Plan 2026")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Gráfico de torta para estado general
+                    estado_labels = ['Culminadas', 'Pendientes', 'Por Hacer']
+                    estado_values = [total_culminado, total_pendiente, max(0, total_planificado - (total_culminado + total_pendiente))]
+                    
+                    fig2 = go.Figure(data=[go.Pie(
+                        labels=estado_labels,
+                        values=estado_values,
+                        hole=0.4,
+                        marker_colors=['#32CD32', '#FFA500', '#d3d3d3'],
+                        textinfo='label+percent+value',
+                        hovertemplate='<b>%{label}</b><br>' +
+                                    'Cantidad: %{value}<br>' +
+                                    'Porcentaje: %{percent}<extra></extra>'
+                    )])
+                    
+                    fig2.update_layout(
+                        title='Distribución General del Plan',
+                        height=300
+                    )
+                    
+                    st.plotly_chart(fig2, use_container_width=True)
+                
+                with col2:
+                    # Gráfico de barras para top meses con mejor cumplimiento
+                    # Filtrar meses con órdenes planificadas
+                    meses_con_datos = monthly_plan_data[monthly_plan_data['TOTAL_PLANIFICADO'] > 0].copy()
+                    
+                    if not meses_con_datos.empty:
+                        # Ordenar por porcentaje de cumplimiento (descendente)
+                        top_cumplimiento = meses_con_datos.nlargest(5, 'CUMPLIMIENTO_PCT')[['MES_NOMBRE', 'CUMPLIMIENTO_PCT']]
+                        
+                        fig3 = px.bar(top_cumplimiento, 
+                                    x='CUMPLIMIENTO_PCT', 
+                                    y='MES_NOMBRE',
+                                    orientation='h',
+                                    title='Top 5 Meses con Mejor Cumplimiento',
+                                    labels={'CUMPLIMIENTO_PCT': 'Cumplimiento %', 'MES_NOMBRE': 'Mes'},
+                                    color='CUMPLIMIENTO_PCT',
+                                    color_continuous_scale='Greens',
+                                    text='CUMPLIMIENTO_PCT')
+                        
+                        fig3.update_traces(texttemplate='%{x:.1f}%', textposition='outside')
+                        fig3.update_layout(height=300)
+                        st.plotly_chart(fig3, use_container_width=True)
+                    else:
+                        st.info("No hay meses con datos de planificación")
+                
+                # Mostrar información sobre meses sin datos
+                meses_sin_planificadas = monthly_plan_data[monthly_plan_data['TOTAL_PLANIFICADO'] == 0]['MES_NOMBRE'].tolist()
+                if meses_sin_planificadas:
+                    st.info(f"**Nota:** Los siguientes meses aún no tienen órdenes planificadas creadas: {', '.join(meses_sin_planificadas)}")
+                    
+            else:
+                st.info("No se pudieron cargar los datos del plan para 2026.")
+                st.markdown("""
+                ### 🔍 **Información:**
+                - No se han encontrado órdenes de tipo **PREVENTIVO**, **BASADO EN CONDICIÓN** o **MEJORA DE SISTEMA** para el año 2026
+                - Esto puede deberse a que:
+                  1. Las órdenes aún no han sido creadas en el sistema
+                  2. Las fechas de inicio de las órdenes no corresponden al año 2026
+                  3. Los datos no han sido cargados correctamente
+                
+                ### **Solución:**
+                - Verifica que el dataset contenga órdenes para el año 2026
+                - Asegúrate de que las órdenes tengan los tipos correctos
+                - Revisa que las fechas de inicio estén correctamente formateadas
+                """)
+        
     else:
         st.info("Por favor, carga datos para comenzar.")
         
