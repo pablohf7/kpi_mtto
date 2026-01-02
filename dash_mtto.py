@@ -560,7 +560,7 @@ def clean_and_prepare_data(df):
             axis=1
         )
     else:
-        df_clean['TR_MIN'] = df_clean['TR_MIN_CALCULADO']
+        df_clean['TR_MIN'] = df_clean['TR_MIN_CALCULado']
     
     # Asegurar que las columnas numéricas sean numéricas
     numeric_columns = ['TR_MIN', 'TFC_MIN', 'TFS_MIN', 'TDISPONIBLE', 'TIEMPO_PROG_MIN', 'H_EXTRA_MIN']
@@ -646,11 +646,7 @@ def calculate_reliability_metrics(df):
     m['tr_emergency'] = df_emergency['TR_MIN'].sum() if 'TR_MIN' in df_emergency.columns else 0
     m['tfc_emergency'] = df_emergency['TFC_MIN'].sum() if 'TFC_MIN' in df_emergency.columns else 0
     m['tfs_emergency'] = df_emergency['TFS_MIN'].sum() if 'TFS_MIN' in df_emergency.columns else 0
-    
-    # Total de fallas (todas las órdenes de correctivo de emergencia)
     m['total_fallas_emergency'] = len(df_emergency)
-    
-    # Total de fallas con parada (emergencias que afectan producción)
     m['total_fallas_emergency_con_parada'] = len(df_emergency[df_emergency['PRODUCCION_AFECTADA'] == 'SI'])
     
     # Calcular MTBF, MTTF, MTTR basados en correctivos de emergencia
@@ -839,7 +835,7 @@ def get_monthly_plan_data(df, year=2026):
     # Crear un DataFrame base con todos los meses de 2026
     meses_todos = [
         (1, 'Enero'), (2, 'Febrero'), (3, 'Marzo'), (4, 'Abril'), (5, 'Mayo'), (6, 'Junio'),
-        (7, 'Julio'), (8, 'Agosto'), (9, 'Septiembre'), (10, 'Octubre'), (11, 'Noviembre'), (12, 'Diciembre')
+        (7, 'Julio'), (8, 'Agordo'), (9, 'Septiembre'), (10, 'Octubre'), (11, 'Noviembre'), (12, 'Diciembre')
     ]
     
     monthly_data = pd.DataFrame(meses_todos, columns=['MES', 'MES_NOMBRE'])
@@ -1544,11 +1540,13 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña Tipo de Mantenimiento - COMPLETA
+        # Pestaña Tipo de Mantenimiento - CORREGIDA CON VALIDACIONES ROBUSTAS
         with tab5:
             st.header("Análisis por Tipo de Mantenimiento")
             
+            # Verificación inicial de datos
             if not filtered_data.empty:
+                # Mostrar métricas
                 col1, col2, col3, col4, col5 = st.columns(5)
                 
                 with col1:
@@ -1571,87 +1569,127 @@ def main():
                 
                 with col1:
                     # Tipo de mantenimiento por semana - BARRAS APILADAS
-                    df_weekly_mtto = filtered_data.copy()
-                    df_weekly_mtto['SEMANA'] = df_weekly_mtto['FECHA_DE_INICIO'].dt.isocalendar().week
-                    df_weekly_mtto['AÑO'] = df_weekly_mtto['FECHA_DE_INICIO'].dt.year
-                    df_weekly_mtto['SEMANA_STR'] = df_weekly_mtto.apply(
-                        lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", 
-                        axis=1
-                    )
-                    
-                    # Agrupar por semana y tipo de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO
-                    tipo_mtto_semana = df_weekly_mtto.groupby(['SEMANA_STR', 'TIPO DE MTTO'])['TR_MIN'].sum().reset_index()
-                    
-                    # Ordenar por semana
-                    tipo_mtto_semana = tipo_mtto_semana.sort_values('SEMANA_STR')
-                    
-                    # Obtener todos los tipos de mantenimiento únicos
-                    tipos_mtto_unicos = filtered_data['TIPO DE MTTO'].unique()
-                    
-                    # Ordenar los tipos de mantenimiento
-                    tipos_ordenados = []
-                    for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PROGRAMADO', 'CORRECTIVO DE EMERGENCIA', 'MEJORA DE SISTEMA']:
-                        if tipo in tipos_mtto_unicos:
-                            tipos_ordenados.append(tipo)
-                    
-                    # Agregar cualquier otro tipo que no esté en la lista ordenada
-                    for tipo in tipos_mtto_unicos:
-                        if tipo not in tipos_ordenados:
-                            tipos_ordenados.append(tipo)
-                    
-                    tipo_mtto_semana['TIPO DE MTTO'] = pd.Categorical(tipo_mtto_semana['TIPO DE MTTO'], categories=tipos_ordenados, ordered=True)
-                    tipo_mtto_semana = tipo_mtto_semana.sort_values(['SEMANA_STR', 'TIPO DE MTTO'])
-                    
-                    if not tipo_mtto_semana.empty:
-                        # Crear gráfico de barras apiladas con colores específicos
-                        fig = px.bar(tipo_mtto_semana, x='SEMANA_STR', y='TR_MIN', color='TIPO DE MTTO',
-                                    title='Tipo de Mantenimiento por Semana (Barras Apiladas) - Todos los Tipos',
-                                    labels={'SEMANA_STR': 'Semana', 'TR_MIN': 'Tiempo (min)'},
-                                    color_discrete_map=COLOR_PALETTE['tipo_mtto'],
-                                    category_orders={'TIPO DE MTTO': tipos_ordenados})
-                        st.plotly_chart(fig, use_container_width=True)
+                    # Verificar columnas necesarias
+                    if 'FECHA_DE_INICIO' in filtered_data.columns and 'TIPO DE MTTO' in filtered_data.columns and 'TR_MIN' in filtered_data.columns:
+                        df_weekly_mtto = filtered_data.copy()
+                        df_weekly_mtto['SEMANA'] = df_weekly_mtto['FECHA_DE_INICIO'].dt.isocalendar().week
+                        df_weekly_mtto['AÑO'] = df_weekly_mtto['FECHA_DE_INICIO'].dt.year
+                        df_weekly_mtto['SEMANA_STR'] = df_weekly_mtto.apply(
+                            lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", 
+                            axis=1
+                        )
+                        
+                        # Agrupar por semana y tipo de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO
+                        try:
+                            tipo_mtto_semana = df_weekly_mtto.groupby(['SEMANA_STR', 'TIPO DE MTTO'])['TR_MIN'].sum().reset_index()
+                            
+                            if not tipo_mtto_semana.empty:
+                                # Ordenar por semana
+                                tipo_mtto_semana = tipo_mtto_semana.sort_values('SEMANA_STR')
+                                
+                                # Obtener todos los tipos de mantenimiento únicos
+                                tipos_mtto_unicos = tipo_mtto_semana['TIPO DE MTTO'].unique()
+                                
+                                # Ordenar los tipos de mantenimiento
+                                tipos_ordenados = []
+                                for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PROGRAMADO', 'CORRECTIVO DE EMERGENCIA', 'MEJORA DE SISTEMA']:
+                                    if tipo in tipos_mtto_unicos:
+                                        tipos_ordenados.append(tipo)
+                                
+                                # Agregar cualquier otro tipo que no esté en la lista ordenada
+                                for tipo in tipos_mtto_unicos:
+                                    if tipo not in tipos_ordenados:
+                                        tipos_ordenados.append(tipo)
+                                
+                                # Crear gráfico de barras apiladas con colores específicos
+                                try:
+                                    fig = px.bar(tipo_mtto_semana, x='SEMANA_STR', y='TR_MIN', color='TIPO DE MTTO',
+                                                title='Tipo de Mantenimiento por Semana (Barras Apiladas) - Todos los Tipos',
+                                                labels={'SEMANA_STR': 'Semana', 'TR_MIN': 'Tiempo (min)'},
+                                                color_discrete_map=COLOR_PALETTE['tipo_mtto'],
+                                                category_orders={'TIPO DE MTTO': tipos_ordenados})
+                                    st.plotly_chart(fig, use_container_width=True)
+                                except Exception as e:
+                                    st.error(f"Error al crear gráfico de barras: {str(e)[:100]}")
+                                    st.info("Mostrando versión simplificada del gráfico")
+                                    fig = px.bar(tipo_mtto_semana, x='SEMANA_STR', y='TR_MIN', color='TIPO DE MTTO',
+                                                title='Tipo de Mantenimiento por Semana')
+                                    st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.info("No hay datos de tipo de mantenimiento por semana")
+                        except Exception as e:
+                            st.error(f"Error al agrupar datos: {str(e)[:100]}")
                     else:
-                        st.info("No hay datos de tipo de mantenimiento por semana")
+                        st.warning("Faltan columnas necesarias para el gráfico de barras (FECHA_DE_INICIO, TIPO DE MTTO, TR_MIN)")
                 
                 with col2:
                     # Distribución de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO
-                    tipo_mtto_totals = filtered_data.groupby('TIPO DE MTTO')['TR_MIN'].sum().reset_index()
-                    
-                    # Obtener todos los tipos de mantenimiento únicos
-                    tipos_mtto_unicos = filtered_data['TIPO DE MTTO'].unique()
-                    
-                    # Ordenar los tipos de mantenimiento
-                    tipos_ordenados = []
-                    for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PROGRAMADO', 'CORRECTIVO DE EMERGENCIA', 'MEJORA DE SISTEMA']:
-                        if tipo in tipos_mtto_unicos:
-                            tipos_ordenados.append(tipo)
-                    
-                    # Agregar cualquier otro tipo que no esté en la lista ordenada
-                    for tipo in tipos_mtto_unicos:
-                        if tipo not in tipos_ordenados:
-                            tipos_ordenados.append(tipo)
-                    
-                    tipo_mtto_totals['TIPO DE MTTO'] = pd.Categorical(tipo_mtto_totals['TIPO DE MTTO'], categories=tipos_ordenados, ordered=True)
-                    tipo_mtto_totals = tipo_mtto_totals.sort_values('TIPO DE MTTO')
-                    
-                    # Crear un mapa de colores extendido para incluir todos los tipos
-                    color_map_extendido = COLOR_PALETTE['tipo_mtto'].copy()
-                    colores_adicionales = ['#FFA500', '#800080', '#008000', '#FF69B4', '#00CED1']  # Colores para tipos adicionales
-                    
-                    for i, tipo in enumerate(tipos_ordenados):
-                        if tipo not in color_map_extendido:
-                            # Asignar un color de la lista de colores adicionales
-                            color_map_extendido[tipo] = colores_adicionales[i % len(colores_adicionales)]
-                    
-                    if not tipo_mtto_totals.empty:
-                        fig = px.pie(tipo_mtto_totals, values='TR_MIN', names='TIPO DE MTTO',
-                                    title='Distribución de Mantenimiento - Todos los Tipos',
-                                    color='TIPO DE MTTO',
-                                    color_discrete_map=color_map_extendido,
-                                    category_orders={'TIPO DE MTTO': tipos_ordenados})
-                        st.plotly_chart(fig, use_container_width=True)
+                    # Verificar columnas necesarias antes de proceder
+                    if 'TIPO DE MTTO' in filtered_data.columns and 'TR_MIN' in filtered_data.columns:
+                        try:
+                            # Crear DataFrame agrupado
+                            tipo_mtto_totals = filtered_data.groupby('TIPO DE MTTO')['TR_MIN'].sum().reset_index()
+                            
+                            # Verificar que el DataFrame no esté vacío
+                            if not tipo_mtto_totals.empty and len(tipo_mtto_totals) > 0:
+                                # Verificar que las columnas existan
+                                if 'TIPO DE MTTO' in tipo_mtto_totals.columns and 'TR_MIN' in tipo_mtto_totals.columns:
+                                    # Obtener los tipos únicos del DataFrame agrupado
+                                    tipos_mtto_unicos = tipo_mtto_totals['TIPO DE MTTO'].unique()
+                                    
+                                    # Ordenar los tipos de mantenimiento
+                                    tipos_ordenados = []
+                                    for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PROGRAMADO', 'CORRECTIVO DE EMERGENCIA', 'MEJORA DE SISTEMA']:
+                                        if tipo in tipos_mtto_unicos:
+                                            tipos_ordenados.append(tipo)
+                                    
+                                    # Agregar cualquier otro tipo que no esté en la lista ordenada
+                                    for tipo in tipos_mtto_unicos:
+                                        if tipo not in tipos_ordenados:
+                                            tipos_ordenados.append(tipo)
+                                    
+                                    # Crear un mapa de colores extendido para incluir todos los tipos
+                                    color_map_extendido = COLOR_PALETTE['tipo_mtto'].copy()
+                                    colores_adicionales = ['#FFA500', '#800080', '#008000', '#FF69B4', '#00CED1']
+                                    
+                                    for i, tipo in enumerate(tipos_ordenados):
+                                        if tipo not in color_map_extendido:
+                                            # Asignar un color de la lista de colores adicionales
+                                            color_map_extendido[tipo] = colores_adicionales[i % len(colores_adicionales)]
+                                    
+                                    # Crear gráfico de pie con manejo de errores
+                                    try:
+                                        fig = px.pie(tipo_mtto_totals, 
+                                                    values='TR_MIN', 
+                                                    names='TIPO DE MTTO',
+                                                    title='Distribución de Mantenimiento - Todos los Tipos',
+                                                    color='TIPO DE MTTO',
+                                                    color_discrete_map=color_map_extendido,
+                                                    category_orders={'TIPO DE MTTO': tipos_ordenados})
+                                        st.plotly_chart(fig, use_container_width=True)
+                                    except Exception as e:
+                                        st.warning(f"Error al crear gráfico de pie personalizado: {str(e)[:100]}")
+                                        # Intentar versión simplificada
+                                        try:
+                                            fig = px.pie(tipo_mtto_totals, 
+                                                        values='TR_MIN', 
+                                                        names='TIPO DE MTTO',
+                                                        title='Distribución de Mantenimiento - Todos los Tipos')
+                                            st.plotly_chart(fig, use_container_width=True)
+                                        except Exception as e2:
+                                            st.error(f"Error crítico al crear gráfico: {str(e2)[:100]}")
+                                            st.info("Datos disponibles:")
+                                            st.write(f"Columnas: {tipo_mtto_totals.columns.tolist()}")
+                                            st.write(f"Filas: {len(tipo_mtto_totals)}")
+                                else:
+                                    st.warning("El DataFrame agrupado no tiene las columnas esperadas")
+                                    st.info(f"Columnas disponibles: {tipo_mtto_totals.columns.tolist()}")
+                            else:
+                                st.info("No hay datos de distribución de mantenimiento después del agrupamiento")
+                        except Exception as e:
+                            st.error(f"Error al procesar datos para gráfico de pie: {str(e)[:100]}")
                     else:
-                        st.info("No hay datos de distribución de mantenimiento")
+                        st.warning("Faltan columnas necesarias para el gráfico de pie (TIPO DE MTTO, TR_MIN)")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
