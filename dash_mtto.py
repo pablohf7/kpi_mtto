@@ -32,7 +32,7 @@ COLOR_PALETTE = {
         'EN EJECUCIÓN': '#FFD700',  # Amarillo
         'RETRASADAS': '#FFA500',  # Naranja
         'PROYECTADAS': '#52b3f3',  # Azul
-        'TOTAL_PLANIFICADAS': "#02BFF8"  # Gris
+        'TOTAL_PLANIFICADAS': "#02BFF8"  # Azul
     }
 }
 
@@ -1636,9 +1636,25 @@ def main():
                                 try:
                                     fig = px.bar(tipo_mtto_semana, x='SEMANA_STR', y='TR_MIN', color='TIPO DE MTTO',
                                                 title='Tipo de Mantenimiento por Semana (Barras Apiladas) - Todos los Tipos',
-                                                labels={'SEMANA_STR': 'Semana', 'TR_MIN': 'Tiempo (min)'},
+                                                labels={'SEMANA_STR': 'Semana', 'TR_MIN': 'Tiempo (min)', 'TIPO DE MTTO': 'Tipo de Mantenimiento'},
                                                 color_discrete_map=COLOR_PALETTE['tipo_mtto'],
                                                 category_orders={'TIPO DE MTTO': tipos_ordenados})
+                                    
+                                    # Ajustar la leyenda del gráfico de barras
+                                    fig.update_layout(
+                                        legend=dict(
+                                            title='Tipo de Mantenimiento',
+                                            orientation='v',
+                                            yanchor='top',
+                                            y=1,
+                                            xanchor='right',
+                                            x=1.05,
+                                            bgcolor='rgba(255, 255, 255, 0.8)',
+                                            bordercolor='lightgray',
+                                            borderwidth=1
+                                        )
+                                    )
+                                    
                                     st.plotly_chart(fig, use_container_width=True)
                                 except Exception as e:
                                     st.error(f"Error al crear gráfico de barras: {str(e)[:100]}")
@@ -1652,7 +1668,7 @@ def main():
                             st.error(f"Error al agrupar datos: {str(e)[:100]}")
                     else:
                         st.warning("Faltan columnas necesarias para el gráfico de barras (FECHA_DE_INICIO, TIPO DE MTTO, TR_MIN)")
-                
+
                 with col2:
                     # Distribución de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO
                     # Verificar columnas necesarias antes de proceder
@@ -1679,25 +1695,78 @@ def main():
                                         if tipo not in tipos_ordenados:
                                             tipos_ordenados.append(tipo)
                                     
-                                    # Crear un mapa de colores extendido para incluir todos los tipos
-                                    color_map_extendido = COLOR_PALETTE['tipo_mtto'].copy()
+                                    # Crear un mapa de colores extendido que use los mismos colores que el gráfico de barras
+                                    # Usar la misma paleta base que el gráfico de barras
+                                    color_map_comun = COLOR_PALETTE['tipo_mtto'].copy()
+                                    
+                                    # Si hay tipos de mantenimiento que no están en la paleta base, asignarles colores consistentes
                                     colores_adicionales = ['#FFA500', '#800080', '#008000', '#FF69B4', '#00CED1']
                                     
                                     for i, tipo in enumerate(tipos_ordenados):
-                                        if tipo not in color_map_extendido:
+                                        if tipo not in color_map_comun:
                                             # Asignar un color de la lista de colores adicionales
-                                            color_map_extendido[tipo] = colores_adicionales[i % len(colores_adicionales)]
+                                            color_map_comun[tipo] = colores_adicionales[i % len(colores_adicionales)]
                                     
-                                    # Crear gráfico de pie con manejo de errores
+                                    # MEJORA: Crear gráfico de torta con los mismos colores que el gráfico de barras
                                     try:
+                                        # Primero, ordenar el DataFrame según el orden definido
+                                        tipo_mtto_totals['TIPO_ORDEN'] = tipo_mtto_totals['TIPO DE MTTO'].apply(
+                                            lambda x: tipos_ordenados.index(x) if x in tipos_ordenados else len(tipos_ordenados)
+                                        )
+                                        tipo_mtto_totals = tipo_mtto_totals.sort_values('TIPO_ORDEN')
+                                        
+                                        # Calcular porcentajes para mostrar en el tooltip
+                                        total_tiempo = tipo_mtto_totals['TR_MIN'].sum()
+                                        tipo_mtto_totals['PORCENTAJE'] = (tipo_mtto_totals['TR_MIN'] / total_tiempo * 100).round(1)
+                                        
+                                        # Crear el gráfico de torta con los mismos colores
                                         fig = px.pie(tipo_mtto_totals, 
                                                     values='TR_MIN', 
                                                     names='TIPO DE MTTO',
                                                     title='Distribución de Mantenimiento - Todos los Tipos',
-                                                    color='TIPO DE MTTO',
-                                                    color_discrete_map=color_map_extendido,
+                                                    color='TIPO DE MTTO',  # Especificar la columna para colorear
+                                                    color_discrete_map=color_map_comun,  # Usar el mismo mapa de colores
                                                     category_orders={'TIPO DE MTTO': tipos_ordenados})
+                                        
+                                        # MEJORA: Ajustar la leyenda para que sea igual al gráfico de barras
+                                        # Primero, determinar si mostrar porcentajes dentro de la torta o no
+                                        # Si hay muchos tipos, es mejor mostrar solo en el tooltip
+                                        
+                                        # Configurar el texto dentro de la torta
+                                        if len(tipo_mtto_totals) <= 6:
+                                            # Pocos tipos: mostrar porcentaje y etiqueta dentro
+                                            textinfo_value = 'percent+label'
+                                            textposition_value = 'inside'
+                                                                                                                            
+                                        # Ajustar el layout para mejor legibilidad y leyenda consistente
+                                        fig.update_layout(
+                                            # MEJORA: Leyenda igual al gráfico de barras
+                                            legend=dict(
+                                                title='Tipo de Mantenimiento',  # Mismo título que el gráfico de barras
+                                                orientation='v',
+                                                yanchor='top',
+                                                y=1,  # Misma altura que el gráfico de barras
+                                                xanchor='right',
+                                                x=1.05,  # Misma posición horizontal
+                                                bgcolor='rgba(255, 255, 255, 0.8)',
+                                                bordercolor='lightgray',
+                                                borderwidth=1,
+                                                font=dict(size=12),
+                                                itemwidth=30
+                                            ),
+                                            # Ajustes para el texto dentro de la torta
+                                            uniformtext_minsize=10,
+                                            uniformtext_mode='hide',
+                                            showlegend=True,
+                                          
+                                        )
+                                        
+                                        # MEJORA: Ajustar tamaño de fuente del porcentaje si se muestra dentro
+                                        if len(tipo_mtto_totals) <= 6:
+                                            fig.update_traces(textfont=dict(size=11, color='white'))
+                                        
                                         st.plotly_chart(fig, use_container_width=True)
+                                        
                                     except Exception as e:
                                         st.warning(f"Error al crear gráfico de pie personalizado: {str(e)[:100]}")
                                         # Intentar versión simplificada
@@ -1705,7 +1774,22 @@ def main():
                                             fig = px.pie(tipo_mtto_totals, 
                                                         values='TR_MIN', 
                                                         names='TIPO DE MTTO',
-                                                        title='Distribución de Mantenimiento - Todos los Tipos')
+                                                        title='Distribución de Mantenimiento - Todos los Tipos',
+                                                        color='TIPO DE MTTO',
+                                                        color_discrete_map=color_map_comun)
+                                            
+                                            # Añadir leyenda consistente en versión simplificada
+                                            fig.update_layout(
+                                                legend=dict(
+                                                    title='Tipo de Mantenimiento',
+                                                    orientation='v',
+                                                    yanchor='top',
+                                                    y=1,
+                                                    xanchor='right',
+                                                    x=1.05
+                                                )
+                                            )
+                                            
                                             st.plotly_chart(fig, use_container_width=True)
                                         except Exception as e2:
                                             st.error(f"Error crítico al crear gráfico: {str(e2)[:100]}")
