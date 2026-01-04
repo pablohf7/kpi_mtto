@@ -2391,18 +2391,18 @@ def main():
                     estado_plan = "🟢 Excelente"
                     estado_color = "green"
                     estado_desc = "El plan se está cumpliendo de manera excelente (>90%)"
-                elif cumplimiento_general >= 80:
+                elif cumplimiento_general >= 70:
                     estado_plan = "🟡 Bueno"
                     estado_color = "orange"
-                    estado_desc = "El plan se está cumpliendo adecuadamente (80-90%)"
-                elif cumplimiento_general >= 70:
+                    estado_desc = "El plan se está cumpliendo adecuadamente (70-90%)"
+                elif cumplimiento_general >= 50:
                     estado_plan = "🟠 Regular"
                     estado_color = "#FF8C00"  # naranja oscuro
-                    estado_desc = "El plan necesita atención (70-80%)"
+                    estado_desc = "El plan necesita atención (50-70%)"
                 else:
                     estado_plan = "🔴 Crítico"
                     estado_color = "red"
-                    estado_desc = "El plan requiere intervención inmediata (<70%)"
+                    estado_desc = "El plan requiere intervención inmediata (<50%)"
                 
                 # Mostrar indicadores generales (7 columnas con las nuevas definiciones)
                 st.subheader("📊 Indicadores Generales del Plan 2026")
