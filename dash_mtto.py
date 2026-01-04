@@ -2179,42 +2179,19 @@ def main():
                 3. Que los datos del personal estén correctamente formateados
                 """)
         
-        # Pestaña Cumplimiento del Plan - MODIFICADA según las especificaciones
+        # Pestaña Cumplimiento del Plan - MODIFICADA para incluir PENDIENTE y CULMINADO
         with tab9:
             st.header("📋 Cumplimiento del Plan de Mantenimiento 2026")
             
-            # 1. Texto explicativo desplegable (colapsado por defecto)
-            with st.expander("ℹ️ **Información sobre el cálculo del cumplimiento**", expanded=False):
-                st.markdown("""
-                ### 📊 **Cálculo del Cumplimiento del Plan**
-                
-                #### **Órdenes consideradas:**
-                - **PREVENTIVO**
-                - **BASADO EN CONDICIÓN**
-                - **MEJORA DE SISTEMA**
-                
-                #### **Período analizado:**
-                - Año 2026 completo (todos los meses)
-                
-                #### **Fórmulas de cálculo:**
-                ```
-                TOTAL_PLANIFICADO = Total de órdenes programadas para el mes
-                
-                TOTAL_CULMINADO = Órdenes con STATUS = 'CULMINADO'
-                
-                Cumplimiento % = (TOTAL_CULMINADO / TOTAL_PLANIFICADO) × 100%
-                
-                Estado del Plan = Evaluación basada en el % de cumplimiento
-                ```
-                
-                #### **Interpretación de colores en gráficos:**
-                - 🟢 **Verde:** Órdenes culminadas (completadas)
-                - 🟠 **Naranja:** Órdenes pendientes (en proceso)
-                - ⚪ **Gris:** Órdenes por hacer (aún no iniciadas)
-                
-                #### **Objetivos de desempeño:**
-                - **Cumplimiento mínimo aceptable:** 80%
-                """)
+            # Nota informativa
+            st.info("""
+            **Nota:** Esta pestaña muestra el plan de mantenimiento para el año 2026 considerando:
+            - **Planificadas:** Total de órdenes programadas para cada mes
+            - **Culminadas:** Órdenes que ya han sido completadas (STATUS = 'CULMINADO')
+            - **Pendientes:** Órdenes en proceso (STATUS = 'PENDIENTE')
+            - **Cumplimiento %:** (Culminadas / Planificadas) × 100%
+            - **Avance %:** ((Culminadas + Pendientes) / Planificadas) × 100%
+            """)
             
             # Obtener datos de cumplimiento del plan para 2026
             monthly_plan_data = get_monthly_plan_data(st.session_state.data, year=2026)
@@ -2225,25 +2202,12 @@ def main():
                 total_culminado = monthly_plan_data['TOTAL_CULMINADO'].sum()
                 total_pendiente = monthly_plan_data['TOTAL_PENDIENTE'].sum()
                 
-                # Calcular porcentaje de cumplimiento
+                # Calcular porcentajes
                 cumplimiento_general = (total_culminado / total_planificado * 100) if total_planificado > 0 else 0
+                avance_general = ((total_culminado + total_pendiente) / total_planificado * 100) if total_planificado > 0 else 0
                 
-                # 3. Evaluar estado del Plan basado en el cumplimiento de órdenes culminadas
-                if cumplimiento_general >= 90:
-                    estado_plan = "🟢 Excelente"
-                    estado_color = "green"
-                elif cumplimiento_general >= 80:
-                    estado_plan = "🟡 Bueno"
-                    estado_color = "orange"
-                elif cumplimiento_general >= 70:
-                    estado_plan = "🟠 Regular"
-                    estado_color = "#FF8C00"  # naranja oscuro
-                else:
-                    estado_plan = "🔴 Crítico"
-                    estado_color = "red"
-                
-                # Mostrar indicadores generales (5 columnas en lugar de 6)
-                col1, col2, col3, col4, col5 = st.columns(5)
+                # Mostrar indicadores generales
+                col1, col2, col3, col4, col5, col6 = st.columns(6)
                 
                 with col1:
                     st.metric("Total Órdenes Planificadas", f"{total_planificado}", 
@@ -2262,9 +2226,20 @@ def main():
                             delta=None, delta_color="normal")
                 
                 with col5:
-                    # 3. Estado del Plan evaluado por cumplimiento (culminadas/planificadas)
-                    st.markdown(f"**Estado del Plan**")
-                    st.markdown(f"<h3 style='color:{estado_color};'>{estado_plan}</h3>", unsafe_allow_html=True)
+                    st.metric("Avance General", f"{avance_general:.1f}%",
+                            delta=None, delta_color="normal")
+                
+                with col6:
+                    # Indicador de estado basado en avance
+                    if avance_general >= 90:
+                        status = "🟢 Excelente"
+                    elif avance_general >= 75:
+                        status = "🟡 Bueno"
+                    elif avance_general >= 60:
+                        status = "🟠 Regular"
+                    else:
+                        status = "🔴 Crítico"
+                    st.metric("Estado del Plan", status)
                 
                 # Gráfico 1: Distribución mensual (Culminadas vs Pendientes vs Por hacer)
                 st.subheader("📊 Distribución Mensual del Plan 2026")
@@ -2284,7 +2259,6 @@ def main():
                     marker_color='#d3d3d3',  # Gris
                     text=distribucion_data['POR_HACER'],
                     textposition='inside',
-                    textfont=dict(size=20,color='black'),
                 ))
                 
                 fig1.add_trace(go.Bar(
@@ -2294,7 +2268,6 @@ def main():
                     marker_color='#FFA500',  # Naranja
                     text=distribucion_data['TOTAL_PENDIENTE'],
                     textposition='inside',
-                    textfont=dict(size=20,color='black'),
                 ))
                 
                 fig1.add_trace(go.Bar(
@@ -2304,31 +2277,27 @@ def main():
                     marker_color='#32CD32',  # Verde
                     text=distribucion_data['TOTAL_CULMINADO'],
                     textposition='inside',
-                    textfont=dict(size=20,color='black'),
                 ))
                 
-                # Añadir anotaciones de porcentaje de cumplimiento
+                # Añadir anotaciones de porcentaje
                 for i, row in distribucion_data.iterrows():
                     if row['TOTAL_PLANIFICADO'] > 0:
-                        cumplimiento_mensual = row['CUMPLIMIENTO_PCT']
-                        
-                        # Determinar color del texto según cumplimiento
-                        if cumplimiento_mensual >= 90:
-                            color_texto = 'green'
-                        elif cumplimiento_mensual >= 80:
-                            color_texto = 'orange'
-                        elif cumplimiento_mensual >= 70:
-                            color_texto = '#FF8C00'
-                        else:
-                            color_texto = 'red'
-                        
-                        # Anotación para cumplimiento
+                        # Anotación para cumplimiento (verde)
                         fig1.add_annotation(
                             x=row['MES_NOMBRE'],
                             y=row['TOTAL_PLANIFICADO'] + (row['TOTAL_PLANIFICADO'] * 0.05),
-                            text=f"{cumplimiento_mensual:.1f}%",
+                            text=f"C: {row['CUMPLIMIENTO_PCT']:.1f}%",
                             showarrow=False,
-                            font=dict(size=20, color=color_texto, weight='bold'),
+                            font=dict(size=9, color='green'),
+                            yshift=5
+                        )
+                        # Anotación para avance (naranja)
+                        fig1.add_annotation(
+                            x=row['MES_NOMBRE'],
+                            y=row['TOTAL_PLANIFICADO'] + (row['TOTAL_PLANIFICADO'] * 0.10),
+                            text=f"A: {row['AVANCE_PCT']:.1f}%",
+                            showarrow=False,
+                            font=dict(size=9, color='orange'),
                             yshift=5
                         )
                 
@@ -2350,56 +2319,79 @@ def main():
                 
                 st.plotly_chart(fig1, use_container_width=True)
                 
+                # Gráfico 2: Comparación de Cumplimiento vs Avance
+                st.subheader("📈 Comparación: Cumplimiento vs Avance por Mes")
+                
+                fig2 = go.Figure()
+                
+                # Línea de cumplimiento
+                fig2.add_trace(go.Scatter(
+                    x=monthly_plan_data['MES_NOMBRE'],
+                    y=monthly_plan_data['CUMPLIMIENTO_PCT'],
+                    name='Cumplimiento %',
+                    mode='lines+markers',
+                    line=dict(color='#32CD32', width=3),
+                    marker=dict(size=8)
+                ))
+                
+                # Línea de avance
+                fig2.add_trace(go.Scatter(
+                    x=monthly_plan_data['MES_NOMBRE'],
+                    y=monthly_plan_data['AVANCE_PCT'],
+                    name='Avance %',
+                    mode='lines+markers',
+                    line=dict(color='#FFA500', width=3, dash='dash'),
+                    marker=dict(size=8)
+                ))
+                
+                # Añadir línea de referencia al 80%
+                fig2.add_hline(y=80, line_dash="dot", line_color="red", 
+                             annotation_text="Objetivo 80%", 
+                             annotation_position="bottom right")
+                
+                fig2.update_layout(
+                    title='Comparación de Cumplimiento vs Avance por Mes',
+                    xaxis_title='Mes',
+                    yaxis_title='Porcentaje (%)',
+                    hovermode='x unified',
+                    height=400
+                )
+                
+                st.plotly_chart(fig2, use_container_width=True)
+                
                 # Tabla detallada - TODOS LOS MESES
                 st.subheader("📋 Detalle por Mes (Todos los meses de 2026)")
                 
-                # Crear tabla formateada con colores según cumplimiento
+                # Crear tabla formateada
                 tabla_detalle = monthly_plan_data.copy()
                 tabla_detalle = tabla_detalle[['MES_NOMBRE', 'TOTAL_PLANIFICADO', 'TOTAL_CULMINADO', 
-                                               'TOTAL_PENDIENTE', 'CUMPLIMIENTO_PCT']]
+                                               'TOTAL_PENDIENTE', 'CUMPLIMIENTO_PCT', 'AVANCE_PCT']]
                 
-                # Función para aplicar color según cumplimiento
-                def color_cumplimiento(val):
-                    if isinstance(val, (int, float)):
-                        if val >= 90:
-                            return 'background-color: #90EE90'  # verde claro
-                        elif val >= 80:
-                            return 'background-color: #FFD700'  # amarillo
-                        elif val >= 70:
-                            return 'background-color: #FFA500'  # naranja
-                        else:
-                            return 'background-color: #FFB6C1'  # rojo claro
-                    return ''
-                
-                # Crear DataFrame para mostrar
-                tabla_mostrar = tabla_detalle.copy()
-                tabla_mostrar['CUMPLIMIENTO_PCT'] = tabla_mostrar.apply(
+                # Formatear porcentajes
+                tabla_detalle['CUMPLIMIENTO_PCT'] = tabla_detalle.apply(
                     lambda x: f"{x['CUMPLIMIENTO_PCT']:.1f}%" if x['TOTAL_PLANIFICADO'] > 0 else "Sin datos",
                     axis=1
                 )
-                
-                tabla_mostrar.columns = ['Mes', 'Planificadas', 'Culminadas', 'Pendientes', 'Cumplimiento %']
-                
-                # Aplicar estilos a la tabla
-                st.dataframe(
-                    tabla_mostrar.style.applymap(
-                        lambda x: color_cumplimiento(float(x.replace('%', '')) if '%' in str(x) else x), 
-                        subset=['Cumplimiento %']
-                    ),
-                    use_container_width=True
+                tabla_detalle['AVANCE_PCT'] = tabla_detalle.apply(
+                    lambda x: f"{x['AVANCE_PCT']:.1f}%" if x['TOTAL_PLANIFICADO'] > 0 else "Sin datos",
+                    axis=1
                 )
                 
-                # Gráfico 2: Proporción Culminadas vs Pendientes vs Por Hacer (General)
+                tabla_detalle.columns = ['Mes', 'Planificadas', 'Culminadas', 'Pendientes', 'Cumplimiento %', 'Avance %']
+                
+                st.dataframe(tabla_detalle, use_container_width=True)
+                
+                # Gráfico 3: Proporción Culminadas vs Pendientes vs Por Hacer (General)
                 st.subheader("🥧 Proporción General del Plan 2026")
                 
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 
                 with col1:
                     # Gráfico de torta para estado general
                     estado_labels = ['Culminadas', 'Pendientes', 'Por Hacer']
                     estado_values = [total_culminado, total_pendiente, max(0, total_planificado - (total_culminado + total_pendiente))]
                     
-                    fig2 = go.Figure(data=[go.Pie(
+                    fig3 = go.Figure(data=[go.Pie(
                         labels=estado_labels,
                         values=estado_values,
                         hole=0.4,
@@ -2410,48 +2402,105 @@ def main():
                                     'Porcentaje: %{percent}<extra></extra>'
                     )])
                     
-                    fig2.update_layout(
+                    fig3.update_layout(
                         title='Distribución General del Plan',
                         height=300
                     )
                     
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig3, use_container_width=True)
                 
                 with col2:
-                    # Gráfico de barras para top meses con mejor cumplimiento
-                    # Filtrar meses con órdenes planificadas
-                    meses_con_datos = monthly_plan_data[monthly_plan_data['TOTAL_PLANIFICADO'] > 0].copy()
+                    # Gráfico de barras para top meses con más culminadas
+                    top_culminadas = monthly_plan_data.nlargest(5, 'TOTAL_CULMINADO')[['MES_NOMBRE', 'TOTAL_CULMINADO']]
                     
-                    if not meses_con_datos.empty:
-                        # Ordenar por porcentaje de cumplimiento (descendente)
-                        top_cumplimiento = meses_con_datos.nlargest(5, 'CUMPLIMIENTO_PCT')[['MES_NOMBRE', 'CUMPLIMIENTO_PCT']]
-                        
-                        fig3 = px.bar(top_cumplimiento, 
-                                    x='CUMPLIMIENTO_PCT', 
+                    if not top_culminadas.empty:
+                        fig4 = px.bar(top_culminadas, 
+                                    x='TOTAL_CULMINADO', 
                                     y='MES_NOMBRE',
                                     orientation='h',
-                                    title='Top 5 Meses con Mejor Cumplimiento',
-                                    labels={'CUMPLIMIENTO_PCT': 'Cumplimiento %', 'MES_NOMBRE': 'Mes'},
-                                    color='CUMPLIMIENTO_PCT',
-                                    color_continuous_scale='Greens',
-                                    text='CUMPLIMIENTO_PCT')
+                                    title='Top 5 Meses con más Órdenes Culminadas',
+                                    labels={'TOTAL_CULMINADO': 'Órdenes Culminadas', 'MES_NOMBRE': 'Mes'},
+                                    color='TOTAL_CULMINADO',
+                                    color_continuous_scale='Greens')
                         
-                        fig3.update_traces(texttemplate='%{x:.1f}%', textposition='outside')
-                        fig3.update_layout(height=300)
-                        st.plotly_chart(fig3, use_container_width=True)
-                    else:
-                        st.info("No hay meses con datos de planificación")
+                        fig4.update_layout(height=300)
+                        st.plotly_chart(fig4, use_container_width=True)
+                
+                with col3:
+                    # Gráfico de barras para top meses con más pendientes
+                    top_pendientes = monthly_plan_data.nlargest(5, 'TOTAL_PENDIENTE')[['MES_NOMBRE', 'TOTAL_PENDIENTE']]
+                    
+                    if not top_pendientes.empty:
+                        fig5 = px.bar(top_pendientes, 
+                                    x='TOTAL_PENDIENTE', 
+                                    y='MES_NOMBRE',
+                                    orientation='h',
+                                    title='Top 5 Meses con más Órdenes Pendientes',
+                                    labels={'TOTAL_PENDIENTE': 'Órdenes Pendientes', 'MES_NOMBRE': 'Mes'},
+                                    color='TOTAL_PENDIENTE',
+                                    color_continuous_scale='Oranges')
+                        
+                        fig5.update_layout(height=300)
+                        st.plotly_chart(fig5, use_container_width=True)
                 
                 # Mostrar información sobre meses sin datos
                 meses_sin_planificadas = monthly_plan_data[monthly_plan_data['TOTAL_PLANIFICADO'] == 0]['MES_NOMBRE'].tolist()
                 if meses_sin_planificadas:
                     st.info(f"**Nota:** Los siguientes meses aún no tienen órdenes planificadas creadas: {', '.join(meses_sin_planificadas)}")
+                
+                # Información adicional
+                with st.expander("ℹ️ Información sobre el cálculo del cumplimiento y avance"):
+                    st.markdown("""
+                    ### 📊 **Cálculo del Cumplimiento y Avance del Plan**
+                    
+                    #### **Órdenes consideradas:**
+                    - **PREVENTIVO**
+                    - **BASADO EN CONDICIÓN**
+                    - **MEJORA DE SISTEMA**
+                    
+                    #### **Período analizado:**
+                    - Año 2026 completo (todos los meses)
+                    
+                    #### **Fórmulas de cálculo:**
+                    ```
+                    TOTAL_PLANIFICADO = Total de órdenes programadas para el mes
+                    
+                    TOTAL_CULMINADO = Órdenes con STATUS = 'CULMINADO'
+                    
+                    TOTAL_PENDIENTE = Órdenes con STATUS = 'PENDIENTE'
+                    
+                    Cumplimiento % = (TOTAL_CULMINADO / TOTAL_PLANIFICADO) × 100%
+                    
+                    Avance % = ((TOTAL_CULMINADO + TOTAL_PENDIENTE) / TOTAL_PLANIFICADO) × 100%
+                    ```
+                    
+                    #### **Interpretación de colores en gráficos:**
+                    - 🟢 **Verde:** Órdenes culminadas (completadas)
+                    - 🟠 **Naranja:** Órdenes pendientes (en proceso)
+                    - ⚪ **Gris:** Órdenes por hacer (aún no iniciadas)
+                    
+                    #### **Objetivos de desempeño:**
+                    - **Cumplimiento mínimo aceptable:** 80%
+                    - **Avance mínimo aceptable:** 90%
+                    
+                    #### **Interpretación de estados:**
+                    - 🟢 **Excelente:** Avance ≥ 90%
+                    - 🟡 **Bueno:** Avance entre 75% y 89%
+                    - 🟠 **Regular:** Avance entre 60% y 74%
+                    - 🔴 **Crítico:** Avance < 60%
+                    
+                    #### **Notas importantes:**
+                    1. Se consideran todas las órdenes con fecha de inicio en 2026
+                    2. El plan incluye todas las órdenes programadas de los tipos especificados
+                    3. Se muestran todos los meses de 2026, incluso aquellos sin órdenes planificadas
+                    4. El cálculo de "Por Hacer" = Planificadas - (Culminadas + Pendientes)
+                    """)
                     
             else:
                 st.info("No se pudieron cargar los datos del plan para 2026.")
                 st.markdown("""
                 ### 🔍 **Información:**
-                - No se han encontrado órdenes de tipo **PREVENTIVO**, **BASADO EN CONDICIÓN** o **MEJORA DE SISTEMA** para el año 2026
+                - No se han encontrado órdenes de tipo PREVENTIVO, BASADO EN CONDICIÓN o MEJORA DE SISTEMA para el año 2026
                 - Esto puede deberse a que:
                   1. Las órdenes aún no han sido creadas en el sistema
                   2. Las fechas de inicio de las órdenes no corresponden al año 2026
