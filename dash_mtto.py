@@ -1640,7 +1640,7 @@ def main():
                                                 color_discrete_map=COLOR_PALETTE['tipo_mtto'],
                                                 category_orders={'TIPO DE MTTO': tipos_ordenados})
                                     
-                                    # Ajustar la leyenda del gráfico de barras
+                                    # CORRECCIÓN: Fondo negro para la leyenda del primer gráfico
                                     fig.update_layout(
                                         legend=dict(
                                             title='Tipo de Mantenimiento',
@@ -1649,9 +1649,10 @@ def main():
                                             y=1,
                                             xanchor='right',
                                             x=1.05,
-                                            bgcolor='rgba(255, 255, 255, 0.8)',
+                                            bgcolor='rgba(0, 0, 0, 0.8)',  # Fondo negro semi-transparente
                                             bordercolor='lightgray',
-                                            borderwidth=1
+                                            borderwidth=1,
+                                            font=dict(color='white')  # Texto blanco para contraste
                                         )
                                     )
                                     
@@ -1719,7 +1720,7 @@ def main():
                                         total_tiempo = tipo_mtto_totals['TR_MIN'].sum()
                                         tipo_mtto_totals['PORCENTAJE'] = (tipo_mtto_totals['TR_MIN'] / total_tiempo * 100).round(1)
                                         
-                                        # Crear el gráfico de torta con los mismos colores
+                                        # CORRECCIÓN: Crear el gráfico de torta SIN el parámetro problemático 'b'
                                         fig = px.pie(tipo_mtto_totals, 
                                                     values='TR_MIN', 
                                                     names='TIPO DE MTTO',
@@ -1728,37 +1729,42 @@ def main():
                                                     color_discrete_map=color_map_comun,  # Usar el mismo mapa de colores
                                                     category_orders={'TIPO DE MTTO': tipos_ordenados})
                                         
-                                        # MEJORA: Ajustar la leyenda para que sea igual al gráfico de barras
-                                        # Primero, determinar si mostrar porcentajes dentro de la torta o no
-                                        # Si hay muchos tipos, es mejor mostrar solo en el tooltip
-                                        
-                                        # Configurar el texto dentro de la torta
+                                        # CORRECCIÓN: Usar textinfo válido sin 'b'
                                         if len(tipo_mtto_totals) <= 6:
                                             # Pocos tipos: mostrar porcentaje y etiqueta dentro
                                             textinfo_value = 'percent+label'
                                             textposition_value = 'inside'
-                                                                                                                            
-                                        # Ajustar el layout para mejor legibilidad y leyenda consistente
+                                        else:
+                                            # Muchos tipos: mostrar solo en tooltip
+                                            textinfo_value = 'percent+label'
+                                            textposition_value = 'outside'
+                                        
+                                        # Configurar el texto dentro de la torta
+                                        fig.update_traces(
+                                            textinfo=textinfo_value,
+                                            textposition=textposition_value
+                                        )
+                                        
+                                        # CORRECCIÓN: Fondo negro para la leyenda del segundo gráfico
                                         fig.update_layout(
-                                            # MEJORA: Leyenda igual al gráfico de barras
                                             legend=dict(
-                                                title='Tipo de Mantenimiento',  # Mismo título que el gráfico de barras
+                                                title='Tipo de Mantenimiento',
+                                                title_font=dict(color='white'),
                                                 orientation='v',
                                                 yanchor='top',
-                                                y=1,  # Misma altura que el gráfico de barras
+                                                y=1,
                                                 xanchor='right',
-                                                x=1.05,  # Misma posición horizontal
-                                                bgcolor='rgba(255, 255, 255, 0.8)',
+                                                x=1.05,
+                                                bgcolor='rgba(0, 0, 0, 0.8)',  # Fondo negro semi-transparente
                                                 bordercolor='lightgray',
                                                 borderwidth=1,
-                                                font=dict(size=12),
+                                                font=dict(color='white', size=12),
                                                 itemwidth=30
                                             ),
                                             # Ajustes para el texto dentro de la torta
                                             uniformtext_minsize=10,
                                             uniformtext_mode='hide',
                                             showlegend=True,
-                                          
                                         )
                                         
                                         # MEJORA: Ajustar tamaño de fuente del porcentaje si se muestra dentro
@@ -1778,15 +1784,20 @@ def main():
                                                         color='TIPO DE MTTO',
                                                         color_discrete_map=color_map_comun)
                                             
-                                            # Añadir leyenda consistente en versión simplificada
+                                            # CORRECCIÓN: Fondo negro para la leyenda en versión simplificada
                                             fig.update_layout(
                                                 legend=dict(
                                                     title='Tipo de Mantenimiento',
+                                                    title_font=dict(color='white'),
                                                     orientation='v',
                                                     yanchor='top',
                                                     y=1,
                                                     xanchor='right',
-                                                    x=1.05
+                                                    x=1.05,
+                                                    bgcolor='rgba(0, 0, 0, 0.8)',
+                                                    bordercolor='lightgray',
+                                                    borderwidth=1,
+                                                    font=dict(color='white')
                                                 )
                                             )
                                             
