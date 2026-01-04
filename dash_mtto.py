@@ -1665,7 +1665,7 @@ def main():
                         st.warning("Faltan columnas necesarias para el gráfico de barras (FECHA_DE_INICIO, TIPO DE MTTO, TR_MIN)")
                 
                 with col2:
-                    # NUEVO GRÁFICO DE TORTA - Distribución de Mantenimiento - Todos los Tipos
+                    # NUEVO GRÁFICO DE TREEMAP - Distribución de Mantenimiento - Todos los Tipos
                     # Verificar columnas necesarias
                     if 'TIPO DE MTTO' in filtered_data_mtto.columns and 'TR_MIN' in filtered_data_mtto.columns:
                         try:
@@ -1673,35 +1673,84 @@ def main():
                             tipo_mtto_totals = filtered_data_mtto.groupby('TIPO DE MTTO')['TR_MIN'].sum().reset_index()
                             
                             if not tipo_mtto_totals.empty:
-                                # Obtener los tipos únicos del DataFrame agrupado
-                                tipos_mtto_unicos = tipo_mtto_totals['TIPO DE MTTO'].unique()
+                                # Calcular porcentajes para mostrar en etiquetas
+                                total_minutos = tipo_mtto_totals['TR_MIN'].sum()
+                                tipo_mtto_totals['PORCENTAJE'] = (tipo_mtto_totals['TR_MIN'] / total_minutos * 100).round(1)
+                                tipo_mtto_totals['HORAS'] = (tipo_mtto_totals['TR_MIN'] / 60).round(1)
                                 
                                 # Ordenar los tipos de mantenimiento (MISMO ORDEN que el gráfico de barras)
-                                tipos_ordenados = []
-                                for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PROGRAMADO', 'CORRECTIVO DE EMERGENCIA', 'MEJORA DE SISTEMA']:
-                                    if tipo in tipos_mtto_unicos:
-                                        tipos_ordenados.append(tipo)
+                                tipos_ordenados = ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PROGRAMADO', 
+                                                'CORRECTIVO DE EMERGENCIA', 'MEJORA DE SISTEMA']
+                                
+                                # Crear un mapeo de colores usando los mismos que el gráfico de barras
+                                color_map_extendido = COLOR_PALETTE['tipo_mtto'].copy()
+                                
+                                # Asignar colores a los tipos que no están en la paleta original
+                                colores_adicionales = ['#FFA500', '#800080', '#008000', '#FF69B4', '#00CED1']
+                                
+                                # Filtrar solo los tipos que existen en los datos
+                                tipos_existentes = tipo_mtto_totals['TIPO DE MTTO'].unique()
+                                tipos_ordenados_filtrados = [tipo for tipo in tipos_ordenados if tipo in tipos_existentes]
                                 
                                 # Agregar cualquier otro tipo que no esté en la lista ordenada
-                                for tipo in tipos_mtto_unicos:
-                                    if tipo not in tipos_ordenados:
-                                        tipos_ordenados.append(tipo)
+                                for tipo in tipos_existentes:
+                                    if tipo not in tipos_ordenados_filtrados:
+                                        tipos_ordenados_filtrados.append(tipo)
                                 
-                                # Crear gráfico de torta con los MISMOS COLORES que el gráfico de barras
-                                fig = px.pie(tipo_mtto_totals, 
-                                            values='TR_MIN', 
-                                            names='TIPO DE MTTO',
-                                            title='Distribución del Mantenimiento - Todos los Tipos (Órdenes CULMINADAS)',
-                                            color='TIPO DE MTTO',
-                                            color_discrete_map=COLOR_PALETTE['tipo_mtto'],
-                                            category_orders={'TIPO DE MTTO': tipos_ordenados})
+                                # Asignar colores a todos los tipos
+                                for i, tipo in enumerate(tipos_ordenados_filtrados):
+                                    if tipo not in color_map_extendido:
+                                        color_map_extendido[tipo] = colores_adicionales[i % len(colores_adicionales)]
+                                
+                                # Crear etiquetas con porcentajes para mostrar en el treemap
+                                tipo_mtto_totals['TEXTO_PORCENTAJE'] = tipo_mtto_totals['PORCENTAJE'].apply(lambda x: f"{x:.1f}%")
+                                
+                                # Crear gráfico de treemap
+                                fig = px.treemap(tipo_mtto_totals, 
+                                                path=['TIPO DE MTTO'], 
+                                                values='TR_MIN',
+                                                title='Distribución del Mantenimiento - Todos los Tipos (Órdenes CULMINADAS)',
+                                                color='TIPO DE MTTO',
+                                                color_discrete_map=color_map_extendido,
+                                                hover_data={'TR_MIN': True, 'HORAS': True, 'PORCENTAJE': True},
+                                                labels={'TIPO DE MTTO': 'Tipo de Mantenimiento', 'TR_MIN': 'Minutos'},
+                                                custom_data=['TIPO DE MTTO', 'TR_MIN', 'HORAS', 'PORCENTAJE'])
+                                
+                                # Personalizar el treemap para mostrar porcentajes
+                                fig.update_traces(
+                                    textinfo="label+text",
+                                    text=tipo_mtto_totals['TEXTO_PORCENTAJE'],
+                                    texttemplate="<b>%{label}</b><br>%{text}",
+                                    textposition="middle center",
+                                    textfont=dict(size=16, color='white'),
+                                    hovertemplate="<b>%{customdata[0]}</b><br>" +
+                                                "Minutos: %{value:.0f}<br>" +
+                                                "Horas: %{customdata[2]:.1f}<br>" +
+                                                "Porcentaje: %{customdata[3]:.1f}%<extra></extra>",
+                                    marker=dict(cornerradius=5)  # Esquinas redondeadas para mejor apariencia
+                                )
+                                
+                                # Asegurar que los colores del texto sean visibles
+                                # Ajustar automáticamente el color del texto según el fondo
+                                fig.update_traces(
+                                    textfont_color=['white' if color_map_extendido.get(tipo, '#000000') in ['#00008B', '#FF0000', '#32CD32'] else 'black' 
+                                                for tipo in tipo_mtto_totals['TIPO DE MTTO']]
+                                )
+                                
+                                # Configurar el layout
+                                fig.update_layout(
+                                    margin=dict(t=50, l=25, r=25, b=25),
+                                    height=500,
+                                    uniformtext=dict(minsize=12, mode='hide')  # Controlar tamaño mínimo del texto
+                                )
+                                
                                 st.plotly_chart(fig, use_container_width=True)
                             else:
                                 st.info("No hay datos de distribución de mantenimiento para órdenes CULMINADAS")
                         except Exception as e:
-                            st.error(f"Error al crear gráfico de torta: {str(e)[:100]}")
+                            st.error(f"Error al crear gráfico de treemap: {str(e)[:200]}")
                     else:
-                        st.warning("Faltan columnas necesarias para el gráfico de torta (TIPO DE MTTO, TR_MIN)")
+                        st.warning("Faltan columnas necesarias para el gráfico de treemap (TIPO DE MTTO, TR_MIN)")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         # Pestaña Confiabilidad - MODIFICADA con columnas específicas
