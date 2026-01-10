@@ -1678,8 +1678,16 @@ def main():
                             tipo_mtto_semana = df_weekly_mtto.groupby(['SEMANA_STR', 'TIPO DE MTTO'])['TR_MIN'].sum().reset_index()
                             
                             if not tipo_mtto_semana.empty:
-                                # Ordenar por semana
-                                tipo_mtto_semana = tipo_mtto_semana.sort_values('SEMANA_STR')
+                                # MEJORA: Ordenar por año y semana numérica (cronológicamente)
+                                # Extraer año y número de semana para ordenar
+                                tipo_mtto_semana['AÑO_NUM'] = tipo_mtto_semana['SEMANA_STR'].str.extract(r'(\d{4})').astype(int)
+                                tipo_mtto_semana['SEMANA_NUM'] = tipo_mtto_semana['SEMANA_STR'].str.extract(r'-S(\d{1,2})').astype(int)
+                                
+                                # Ordenar primero por año, luego por semana (ascendente = más viejo a más actual)
+                                tipo_mtto_semana = tipo_mtto_semana.sort_values(['AÑO_NUM', 'SEMANA_NUM'])
+                                
+                                # Obtener el orden de semanas ya ordenadas cronológicamente
+                                semanas_ordenadas = tipo_mtto_semana['SEMANA_STR'].unique().tolist()
                                 
                                 # Obtener todos los tipos de mantenimiento únicos
                                 tipos_mtto_unicos = tipo_mtto_semana['TIPO DE MTTO'].unique()
@@ -1701,7 +1709,15 @@ def main():
                                                 title='Tipo de Mantenimiento por Semana (Barras Apiladas) - Todos los Tipos',
                                                 labels={'SEMANA_STR': 'Semana', 'TR_MIN': 'Tiempo (min)'},
                                                 color_discrete_map=COLOR_PALETTE['tipo_mtto'],
-                                                category_orders={'TIPO DE MTTO': tipos_ordenados})
+                                                category_orders={
+                                                    'SEMANA_STR': semanas_ordenadas,  # Orden cronológico
+                                                    'TIPO DE MTTO': tipos_ordenados   # Orden de tipos
+                                                })
+                                    
+                                    # Rotar etiquetas si hay muchas semanas para mejor legibilidad
+                                    if len(semanas_ordenadas) > 8:
+                                        fig.update_xaxes(tickangle=45)
+                                    
                                     st.plotly_chart(fig, use_container_width=True)
                                 except Exception as e:
                                     st.error(f"Error al crear gráfico de barras: {str(e)[:100]}")
@@ -1711,7 +1727,6 @@ def main():
                             st.error(f"Error al agrupar datos: {str(e)[:100]}")
                     else:
                         st.warning("Faltan columnas necesarias para el gráfico de barras (FECHA_DE_INICIO, TIPO DE MTTO, TR_MIN)")
-                
                 with col2:
                     # NUEVO GRÁFICO DE TREEMAP - Distribución de Mantenimiento - Todos los Tipos
                     # Verificar columnas necesarias
