@@ -1268,7 +1268,7 @@ def main():
         total_planificadas_mes_actual = get_total_planificadas_mes_actual(st.session_state.data, year=2026)
         
         # Pestaña Planta - CORREGIDA
-        # Pestaña Planta - MEJORADA CON 4 COLUMNAS Y VELOCÍMETROS
+        # Pestaña Planta - MEJORADA CON 4 COLUMNAS Y VELOCÍMETROS (VERSIÓN CORREGIDA)
         with tab1:
             st.header("🏭 Dashboard de Planta - Vista Consolidada")
             
@@ -1321,7 +1321,7 @@ def main():
                 
                 with col2:
                     # Velocímetro de Cumplimiento del Plan
-                    if not monthly_plan_data.empty:
+                    if not monthly_plan_data.empty and 'TOTAL_PLANIFICADAS' in monthly_plan_data.columns:
                         total_planificadas = monthly_plan_data['TOTAL_PLANIFICADAS'].sum()
                         total_culminadas = monthly_plan_data['ORDENES_CULMINADAS'].sum()
                         cumplimiento = (total_culminadas / total_planificadas * 100) if total_planificadas > 0 else 0
@@ -1466,7 +1466,7 @@ def main():
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    if not weekly_data.empty:
+                    if not weekly_data.empty and 'DISPO_SEMANAL' in weekly_data.columns:
                         fig = px.line(weekly_data, x='SEMANA_STR', y='DISPO_SEMANAL', 
                                     title='📈 Disponibilidad por Semana',
                                     labels={'SEMANA_STR': 'Semana', 'DISPO_SEMANAL': 'Disponibilidad (%)'},
@@ -1476,37 +1476,52 @@ def main():
                         fig.add_hrect(y0=60, y1=80, line_width=0, fillcolor="yellow", opacity=0.1)
                         fig.add_hrect(y0=0, y1=60, line_width=0, fillcolor="red", opacity=0.1)
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de disponibilidad semanal")
                 
                 with col2:
-                    if not weekly_data.empty:
+                    if not weekly_data.empty and 'TFS_MIN' in weekly_data.columns and 'TR_MIN' in weekly_data.columns:
                         fig = go.Figure()
                         fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TFS_MIN'], 
                                             name='TFS', marker_color='#FF6B6B'))
                         fig.add_trace(go.Scatter(x=weekly_data['SEMANA_STR'], y=weekly_data['TR_MIN'], 
                                                 name='TR', mode='lines+markers', line_color='#FFD700', yaxis='y2'))
+                        
+                        # CORRECCIÓN: Formato correcto para el layout con dos ejes Y
                         fig.update_layout(
                             title='📊 TFS y TR por Semana',
-                            yaxis=dict(title='TFS (min)', titlefont=dict(color='#FF6B6B')),
-                            yaxis2=dict(title='TR (min)', titlefont=dict(color='#FFD700'), 
-                                    overlaying='y', side='right'),
+                            yaxis=dict(
+                                title='TFS (min)',
+                                titlefont=dict(color='#FF6B6B')
+                            ),
+                            yaxis2=dict(
+                                title='TR (min)',
+                                titlefont=dict(color='#FFD700'),
+                                overlaying='y',
+                                side='right'
+                            ),
                             hovermode='x unified'
                         )
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de TFS y TR semanal")
                 
                 # Fila 4: 2 gráficos más
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    if not weekly_emergency_data.empty:
+                    if not weekly_emergency_data.empty and 'NUM_ORDENES_EMERGENCIA' in weekly_emergency_data.columns:
                         fig = px.bar(weekly_emergency_data, x='SEMANA_STR', y='NUM_ORDENES_EMERGENCIA',
                                     title='🚨 Correctivos de Emergencia por Semana',
                                     labels={'SEMANA_STR': 'Semana', 'NUM_ORDENES_EMERGENCIA': 'N° de Órdenes'},
                                     color='NUM_ORDENES_EMERGENCIA',
                                     color_continuous_scale='Reds')
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de correctivos de emergencia")
                 
                 with col2:
-                    if not weekly_data.empty:
+                    if not weekly_data.empty and 'TFC_MIN' in weekly_data.columns:
                         fig = go.Figure()
                         fig.add_trace(go.Scatter(x=weekly_data['SEMANA_STR'], y=weekly_data['TFC_MIN'],
                                                 name='TFC', mode='lines+markers', 
@@ -1515,6 +1530,8 @@ def main():
                                         xaxis_title='Semana',
                                         yaxis_title='TFC (min)')
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de TFC semanal")
                 
                 # =============================================
                 # SECCIÓN 4: ANÁLISIS POR EQUIPO Y CONJUNTO
@@ -1527,57 +1544,61 @@ def main():
                 with col1:
                     # TFS por Equipo (Top 5)
                     filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
-                    if not filtered_afecta.empty:
+                    if not filtered_afecta.empty and 'EQUIPO' in filtered_afecta.columns and 'TFS_MIN' in filtered_afecta.columns:
                         tfs_por_equipo = filtered_afecta.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
                         tfs_por_equipo = tfs_por_equipo.nlargest(5, 'TFS_MIN')
-                        fig = px.bar(tfs_por_equipo, x='EQUIPO', y='TFS_MIN',
-                                    title='🛠️ TFS Top 5 Equipos',
-                                    labels={'EQUIPO': 'Equipo', 'TFS_MIN': 'TFS (min)'},
-                                    color='TFS_MIN', color_continuous_scale='Reds')
-                        fig.update_layout(showlegend=False)
-                        st.plotly_chart(fig, use_container_width=True)
+                        if not tfs_por_equipo.empty:
+                            fig = px.bar(tfs_por_equipo, x='EQUIPO', y='TFS_MIN',
+                                        title='🛠️ TFS Top 5 Equipos',
+                                        labels={'EQUIPO': 'Equipo', 'TFS_MIN': 'TFS (min)'},
+                                        color='TFS_MIN', color_continuous_scale='Reds')
+                            fig.update_layout(showlegend=False)
+                            st.plotly_chart(fig, use_container_width=True)
                 
                 with col2:
                     # TR por Conjunto (Top 5)
-                    if not filtered_afecta.empty:
+                    if not filtered_afecta.empty and 'CONJUNTO' in filtered_afecta.columns and 'TR_MIN' in filtered_afecta.columns:
                         tr_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TR_MIN'].sum().reset_index()
                         tr_por_conjunto = tr_por_conjunto.nlargest(5, 'TR_MIN')
-                        fig = px.bar(tr_por_conjunto, x='CONJUNTO', y='TR_MIN',
-                                    title='🔧 TR Top 5 Conjuntos',
-                                    labels={'CONJUNTO': 'Conjunto', 'TR_MIN': 'TR (min)'},
-                                    color='TR_MIN', color_continuous_scale='Oranges')
-                        fig.update_layout(showlegend=False)
-                        st.plotly_chart(fig, use_container_width=True)
+                        if not tr_por_conjunto.empty:
+                            fig = px.bar(tr_por_conjunto, x='CONJUNTO', y='TR_MIN',
+                                        title='🔧 TR Top 5 Conjuntos',
+                                        labels={'CONJUNTO': 'Conjunto', 'TR_MIN': 'TR (min)'},
+                                        color='TR_MIN', color_continuous_scale='Oranges')
+                            fig.update_layout(showlegend=False)
+                            st.plotly_chart(fig, use_container_width=True)
                 
                 with col3:
                     # Distribución de Tipo de Mantenimiento
                     if 'TIPO DE MTTO' in filtered_data.columns:
                         tipo_mtto_counts = filtered_data['TIPO DE MTTO'].value_counts().reset_index()
                         tipo_mtto_counts.columns = ['TIPO_MTTO', 'COUNT']
-                        fig = px.pie(tipo_mtto_counts, values='COUNT', names='TIPO_MTTO',
-                                    title='📋 Distribución Tipo Mtto',
-                                    hole=0.4,
-                                    color_discrete_sequence=px.colors.qualitative.Set3)
-                        fig.update_traces(textposition='inside', textinfo='percent+label')
-                        st.plotly_chart(fig, use_container_width=True)
+                        if not tipo_mtto_counts.empty:
+                            fig = px.pie(tipo_mtto_counts, values='COUNT', names='TIPO_MTTO',
+                                        title='📋 Distribución Tipo Mtto',
+                                        hole=0.4,
+                                        color_discrete_sequence=px.colors.qualitative.Set3)
+                            fig.update_traces(textposition='inside', textinfo='percent+label')
+                            st.plotly_chart(fig, use_container_width=True)
                 
                 with col4:
                     # Costos de Horas Extras por Técnico (Top 5)
-                    if not accumulated_costs.empty:
+                    if not accumulated_costs.empty and 'COSTO_TOTAL' in accumulated_costs.columns:
                         top_tecnicos = accumulated_costs.nlargest(5, 'COSTO_TOTAL')
-                        fig = px.bar(top_tecnicos, x='TECNICO', y='COSTO_TOTAL',
-                                    title='💰 Costos Horas Extras Top 5',
-                                    labels={'TECNICO': 'Técnico', 'COSTO_TOTAL': 'Costo Total ($)'},
-                                    color='COSTO_TOTAL', color_continuous_scale='Greens')
-                        fig.update_layout(xaxis_tickangle=-45, showlegend=False)
-                        st.plotly_chart(fig, use_container_width=True)
+                        if not top_tecnicos.empty:
+                            fig = px.bar(top_tecnicos, x='TECNICO', y='COSTO_TOTAL',
+                                        title='💰 Costos Horas Extras Top 5',
+                                        labels={'TECNICO': 'Técnico', 'COSTO_TOTAL': 'Costo Total ($)'},
+                                        color='COSTO_TOTAL', color_continuous_scale='Greens')
+                            fig.update_layout(xaxis_tickangle=-45, showlegend=False)
+                            st.plotly_chart(fig, use_container_width=True)
                 
                 # =============================================
                 # SECCIÓN 5: CUMPLIMIENTO DEL PLAN
                 # =============================================
                 st.subheader("📅 Cumplimiento del Plan 2026")
                 
-                if not monthly_plan_data.empty:
+                if not monthly_plan_data.empty and 'ORDENES_CULMINADAS' in monthly_plan_data.columns:
                     # Fila 6: 2 gráficos de cumplimiento
                     col1, col2 = st.columns(2)
                     
@@ -1605,16 +1626,17 @@ def main():
                     
                     with col2:
                         # Gráfico de línea de cumplimiento porcentual
-                        fig = px.line(monthly_plan_data, x='MES_NOMBRE', y='CUMPLIMIENTO_PCT',
-                                    title='📈 Porcentaje de Cumplimiento',
-                                    labels={'MES_NOMBRE': 'Mes', 'CUMPLIMIENTO_PCT': 'Cumplimiento (%)'},
-                                    markers=True)
-                        fig.update_traces(line_color='#32CD32', line_width=3)
-                        fig.add_hrect(y0=90, y1=100, line_width=0, fillcolor="green", opacity=0.1)
-                        fig.add_hrect(y0=70, y1=90, line_width=0, fillcolor="yellow", opacity=0.1)
-                        fig.add_hrect(y0=0, y1=70, line_width=0, fillcolor="red", opacity=0.1)
-                        fig.update_layout(height=400)
-                        st.plotly_chart(fig, use_container_width=True)
+                        if 'CUMPLIMIENTO_PCT' in monthly_plan_data.columns:
+                            fig = px.line(monthly_plan_data, x='MES_NOMBRE', y='CUMPLIMIENTO_PCT',
+                                        title='📈 Porcentaje de Cumplimiento',
+                                        labels={'MES_NOMBRE': 'Mes', 'CUMPLIMIENTO_PCT': 'Cumplimiento (%)'},
+                                        markers=True)
+                            fig.update_traces(line_color='#32CD32', line_width=3)
+                            fig.add_hrect(y0=90, y1=100, line_width=0, fillcolor="green", opacity=0.1)
+                            fig.add_hrect(y0=70, y1=90, line_width=0, fillcolor="yellow", opacity=0.1)
+                            fig.add_hrect(y0=0, y1=70, line_width=0, fillcolor="red", opacity=0.1)
+                            fig.update_layout(height=400)
+                            st.plotly_chart(fig, use_container_width=True)
                 
                 # =============================================
                 # SECCIÓN 6: RESUMEN ESTADÍSTICO
@@ -1625,132 +1647,28 @@ def main():
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.metric("Total Fallas", 
-                            f"{reliability_metrics.get('total_fallas_emergency', 0) if reliability_metrics else 0}",
+                    total_fallas = reliability_metrics.get('total_fallas_emergency', 0) if reliability_metrics else 0
+                    st.metric("Total Fallas", f"{total_fallas}",
                             help="Número de correctivos de emergencia")
                 
                 with col2:
+                    tr_horas = accumulated_tech_data['TR_HORAS'].sum() if not accumulated_tech_data.empty and 'TR_HORAS' in accumulated_tech_data.columns else 0
                     st.metric("Horas Normales Técnicos", 
-                            f"{accumulated_tech_data['TR_HORAS'].sum() if not accumulated_tech_data.empty else 0:,.1f}",
-                            "horas")
+                            f"{tr_horas:,.1f}", "horas")
                 
                 with col3:
-                    st.metric("Costo Total Horas Extras",
-                            f"${accumulated_costs['COSTO_TOTAL'].sum() if not accumulated_costs.empty else 0:,.2f}")
+                    costo_total = accumulated_costs['COSTO_TOTAL'].sum() if not accumulated_costs.empty and 'COSTO_TOTAL' in accumulated_costs.columns else 0
+                    st.metric("Costo Total Horas Extras", f"${costo_total:,.2f}")
                 
                 with col4:
                     # Eficiencia Global
-                    eficiencia_global = ((metrics.get('to', 0) / metrics.get('td', 1)) * 100) if metrics.get('td', 0) > 0 else 0
+                    td = metrics.get('td', 0)
+                    to = metrics.get('to', 0)
+                    eficiencia_global = (to / td * 100) if td > 0 else 0
                     st.metric("Eficiencia Global", f"{eficiencia_global:.1f}%")
-                
-                # =============================================
-                # SECCIÓN 7: DATOS FILTRADOS (opcional, colapsado)
-                # =============================================
-                with st.expander("🔍 Ver Datos Filtrados Detallados"):
-                    st.dataframe(
-                        filtered_data[['FECHA_DE_INICIO', 'EQUIPO', 'CONJUNTO', 'TIPO DE MTTO', 
-                                    'TR_MIN', 'TFS_MIN', 'TFC_MIN', 'RESPONSABLE']].head(50),
-                        use_container_width=True
-                    )
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
-                
-                # Pestaña TFS - COMPLETA CON UBICACIÓN TÉCNICA
-                with tab2:
-                    st.header("Análisis de TFS")
-                    
-                    if not filtered_data.empty:
-                        # Filtrar solo registros que afectan producción
-                        filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
-                        
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            if not weekly_data.empty:
-                                fig = px.line(weekly_data, x='SEMANA_STR', y='TFS_MIN',
-                                            title='TFS por Semana (Minutos)',
-                                            labels={'SEMANA_STR': 'Semana', 'TFS_MIN': 'TFS (min)'})
-                                fig.update_traces(line_color=COLOR_PALETTE['pastel'][1], mode='lines+markers')
-                                st.plotly_chart(fig, use_container_width=True)
-                            else:
-                                st.info("No hay datos semanales para mostrar")
-                        
-                        with col2:
-                            tfs_por_equipo = filtered_afecta.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
-                            tfs_por_equipo = tfs_por_equipo.sort_values('TFS_MIN', ascending=False).head(10)
-                            
-                            if not tfs_por_equipo.empty:
-                                fig = px.bar(tfs_por_equipo, x='EQUIPO', y='TFS_MIN',
-                                            title='TFS por Equipo',
-                                            labels={'EQUIPO': 'Equipo', 'TFS_MIN': 'TFS (min)'})
-                                fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
-                                st.plotly_chart(fig, use_container_width=True)
-                            else:
-                                st.info("No hay datos de TFS por equipo")
-                        
-                        # TFS por conjunto
-                        tfs_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TFS_MIN'].sum().reset_index()
-                        tfs_por_conjunto = tfs_por_conjunto.sort_values('TFS_MIN', ascending=False).head(10)
-                        
-                        if not tfs_por_conjunto.empty:
-                            fig = px.bar(tfs_por_conjunto, x='CONJUNTO', y='TFS_MIN',
-                                        title='TFS por Conjunto',
-                                        labels={'CONJUNTO': 'Conjunto', 'TFS_MIN': 'TFS (min)'})
-                            fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
-                            st.plotly_chart(fig, use_container_width=True)
-                        else:
-                            st.info("No hay datos de TFS por conjunto")
-                        
-                        # TFS por Ubicación Técnica (NUEVO)
-                        if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
-                            tfs_por_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA')['TFS_MIN'].sum().reset_index()
-                            tfs_por_ubicacion = tfs_por_ubicacion.sort_values('TFS_MIN', ascending=False).head(10)
-                            
-                            if not tfs_por_ubicacion.empty:
-                                fig = px.bar(tfs_por_ubicacion, x='UBICACIÓN TÉCNICA', y='TFS_MIN',
-                                            title='TFS por Ubicación Técnica',
-                                            labels={'UBICACIÓN TÉCNICA': 'Ubicación Técnica', 'TFS_MIN': 'TFS (min)'})
-                                fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
-                                st.plotly_chart(fig, use_container_width=True)
-                            else:
-                                st.info("No hay datos de TFS por ubicación técnica")
-                        
-                        # Tablas de resumen - AHORA CON 3 COLUMNAS
-                        st.subheader("Resúmenes TFS")
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.write("**Resumen TFS por Equipo**")
-                            resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({
-                                'TFS_MIN': 'sum',
-                                'TR_MIN': 'sum',
-                                'TFC_MIN': 'sum'
-                            }).reset_index()
-                            st.dataframe(resumen_equipo, use_container_width=True)
-                        
-                        with col2:
-                            st.write("**Resumen TFS por Conjunto**")
-                            resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({
-                                'TFS_MIN': 'sum',
-                                'TR_MIN': 'sum',
-                                'TFC_MIN': 'sum'
-                            }).reset_index()
-                            st.dataframe(resumen_conjunto.head(10), use_container_width=True)
-                        
-                        with col3:
-                            st.write("**Resumen TFS por Ubicación Técnica**")
-                            if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
-                                resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({
-                                    'TFS_MIN': 'sum',
-                                    'TR_MIN': 'sum',
-                                    'TFC_MIN': 'sum'
-                                }).reset_index()
-                                st.dataframe(resumen_ubicacion.head(10), use_container_width=True)
-                            else:
-                                st.info("No hay datos de ubicación técnica")
-                    else:
-                        st.info("No hay datos para mostrar con los filtros seleccionados")
-        
+            
         # Pestaña TR - COMPLETA CON UBICACIÓN TÉCNICA
         with tab3:
             st.header("Análisis de TR")
@@ -3208,23 +3126,23 @@ def main():
         st.subheader("Instrucciones:")
         st.markdown("""
         1. **Carga automática desde Google Sheets:**
-           - Los datos se cargan automáticamente desde Google Sheets al abrir la aplicación
-           - Asegúrate de que el archivo de Google Sheets sea público y accesible
+        - Los datos se cargan automáticamente desde Google Sheets al abrir la aplicación
+        - Asegúrate de que el archivo de Google Sheets sea público y accesible
         
         2. **Estructura del archivo:**
-           - Los datos deben estar en una hoja llamada 'DATAMTTO'
-           - Los datos del personal deben estar en una hoja llamada 'PERSONAL'
-           - Incluir columnas como: FECHA DE INICIO, FECHA DE FIN, EQUIPO, CONJUNTO, TIPO DE MTTO, RESPONSABLE, STATUS, etc.
+        - Los datos deben estar en una hoja llamada 'DATAMTTO'
+        - Los datos del personal deben estar en una hoja llamada 'PERSONAL'
+        - Incluir columnas como: FECHA DE INICIO, FECHA DE FIN, EQUIPO, CONJUNTO, TIPO DE MTTO, RESPONSABLE, STATUS, etc.
         
         3. **Actualizaciones automáticas:**
-           - Los datos de Google Sheets se actualizan automáticamente cada 5 minutos
-           - Recarga la página para obtener los datos más recientes
+        - Los datos de Google Sheets se actualizan automáticamente cada 5 minutos
+        - Recarga la página para obtener los datos más recientes
         
         4. **MEJORAS IMPLEMENTADAS: Cumplimiento del Plan**
-           - **Nuevo indicador:** "Total Planificadas del Mes" (solo información)
-           - **Indicador renombrado:** "Total Planificadas" ahora es "Total Planificadas hasta ayer"
-           - **Nueva definición:** "Órdenes Proyectadas" ahora incluye órdenes con fecha de inicio anterior a hoy pero fecha final ≥ hoy
-           - **Filtro de fecha:** Solo se consideran órdenes con fecha de inicio y fin hasta un día antes de hoy
+        - **Nuevo indicador:** "Total Planificadas del Mes" (solo información)
+        - **Indicador renombrado:** "Total Planificadas" ahora es "Total Planificadas hasta ayer"
+        - **Nueva definición:** "Órdenes Proyectadas" ahora incluye órdenes con fecha de inicio anterior a hoy pero fecha final ≥ hoy
+        - **Filtro de fecha:** Solo se consideran órdenes con fecha de inicio y fin hasta un día antes de hoy
         """)
 
 if __name__ == "__main__":
