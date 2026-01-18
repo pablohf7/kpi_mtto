@@ -1268,164 +1268,488 @@ def main():
         total_planificadas_mes_actual = get_total_planificadas_mes_actual(st.session_state.data, year=2026)
         
         # Pestaña Planta - CORREGIDA
+        # Pestaña Planta - MEJORADA CON 4 COLUMNAS Y VELOCÍMETROS
         with tab1:
-            st.header("📈 Indicadores de Planta")
+            st.header("🏭 Dashboard de Planta - Vista Consolidada")
             
             if not filtered_data.empty:
-                # Métricas principales
-                col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+                # =============================================
+                # SECCIÓN 1: INDICADORES PRINCIPALES CON VELOCÍMETROS
+                # =============================================
+                st.subheader("📊 Indicadores Clave de Desempeño")
+                
+                # Fila 1: 4 velocímetros principales
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    # Velocímetro de Disponibilidad
+                    disponibilidad = metrics.get('disponibilidad', 0)
+                    fig_dispo = go.Figure(go.Indicator(
+                        mode="gauge+number+delta",
+                        value=disponibilidad,
+                        domain={'x': [0, 1], 'y': [0, 1]},
+                        title={'text': "Disponibilidad", 'font': {'size': 18}},
+                        delta={'reference': 80, 'increasing': {'color': "green"}},
+                        gauge={
+                            'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                            'bar': {'color': "darkblue"},
+                            'bgcolor': "white",
+                            'borderwidth': 2,
+                            'bordercolor': "gray",
+                            'steps': [
+                                {'range': [0, 60], 'color': '#FF0000'},  # Rojo
+                                {'range': [60, 80], 'color': '#FFD700'},  # Amarillo
+                                {'range': [80, 100], 'color': '#32CD32'}  # Verde
+                            ],
+                            'threshold': {
+                                'line': {'color': "black", 'width': 4},
+                                'thickness': 0.75,
+                                'value': disponibilidad
+                            }
+                        }
+                    ))
+                    fig_dispo.update_layout(height=250)
+                    st.plotly_chart(fig_dispo, use_container_width=True)
+                    
+                    # Etiqueta de estado
+                    if disponibilidad >= 80:
+                        st.success("✅ Excelente")
+                    elif disponibilidad >= 60:
+                        st.warning("⚠️ Regular")
+                    else:
+                        st.error("❌ Crítico")
+                
+                with col2:
+                    # Velocímetro de Cumplimiento del Plan
+                    if not monthly_plan_data.empty:
+                        total_planificadas = monthly_plan_data['TOTAL_PLANIFICADAS'].sum()
+                        total_culminadas = monthly_plan_data['ORDENES_CULMINADAS'].sum()
+                        cumplimiento = (total_culminadas / total_planificadas * 100) if total_planificadas > 0 else 0
+                    else:
+                        cumplimiento = 0
+                    
+                    fig_cumplimiento = go.Figure(go.Indicator(
+                        mode="gauge+number+delta",
+                        value=cumplimiento,
+                        domain={'x': [0, 1], 'y': [0, 1]},
+                        title={'text': "Cumplimiento Plan", 'font': {'size': 18}},
+                        delta={'reference': 80, 'increasing': {'color': "green"}},
+                        gauge={
+                            'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                            'bar': {'color': "darkblue"},
+                            'bgcolor': "white",
+                            'borderwidth': 2,
+                            'bordercolor': "gray",
+                            'steps': [
+                                {'range': [0, 70], 'color': '#FF0000'},
+                                {'range': [70, 90], 'color': '#FFD700'},
+                                {'range': [90, 100], 'color': '#32CD32'}
+                            ],
+                            'threshold': {
+                                'line': {'color': "black", 'width': 4},
+                                'thickness': 0.75,
+                                'value': cumplimiento
+                            }
+                        }
+                    ))
+                    fig_cumplimiento.update_layout(height=250)
+                    st.plotly_chart(fig_cumplimiento, use_container_width=True)
+                    
+                    if cumplimiento >= 90:
+                        st.success("✅ Excelente")
+                    elif cumplimiento >= 70:
+                        st.warning("⚠️ Regular")
+                    else:
+                        st.error("❌ Crítico")
+                
+                with col3:
+                    # Velocímetro de MTBF (Mean Time Between Failures)
+                    mtbf = reliability_metrics.get('mtbf_emergency', 0) if reliability_metrics else 0
+                    # Normalizar para el velocímetro (0-1000 minutos)
+                    mtbf_normalizado = min(mtbf, 1000)
+                    
+                    fig_mtbf = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=mtbf_normalizado,
+                        domain={'x': [0, 1], 'y': [0, 1]},
+                        title={'text': "MTBF (min)", 'font': {'size': 18}},
+                        gauge={
+                            'axis': {'range': [0, 1000], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                            'bar': {'color': "darkblue"},
+                            'bgcolor': "white",
+                            'borderwidth': 2,
+                            'bordercolor': "gray",
+                            'steps': [
+                                {'range': [0, 300], 'color': '#FF0000'},  # Rojo: menos de 5 horas
+                                {'range': [300, 600], 'color': '#FFD700'},  # Amarillo: 5-10 horas
+                                {'range': [600, 1000], 'color': '#32CD32'}  # Verde: más de 10 horas
+                            ],
+                            'threshold': {
+                                'line': {'color': "black", 'width': 4},
+                                'thickness': 0.75,
+                                'value': mtbf_normalizado
+                            }
+                        }
+                    ))
+                    fig_mtbf.update_layout(height=250)
+                    st.plotly_chart(fig_mtbf, use_container_width=True)
+                    
+                    if mtbf >= 600:
+                        st.success("✅ Excelente")
+                    elif mtbf >= 300:
+                        st.warning("⚠️ Regular")
+                    else:
+                        st.error("❌ Crítico")
+                
+                with col4:
+                    # Velocímetro de MTTR (Mean Time To Repair)
+                    mttr = reliability_metrics.get('mttr_emergency', 0) if reliability_metrics else 0
+                    # Normalizar para el velocímetro (0-500 minutos)
+                    mttr_normalizado = min(mttr, 500)
+                    
+                    fig_mttr = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=mttr_normalizado,
+                        domain={'x': [0, 1], 'y': [0, 1]},
+                        title={'text': "MTTR (min)", 'font': {'size': 18}},
+                        gauge={
+                            'axis': {'range': [0, 500], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                            'bar': {'color': "darkblue"},
+                            'bgcolor': "white",
+                            'borderwidth': 2,
+                            'bordercolor': "gray",
+                            'steps': [
+                                {'range': [0, 120], 'color': '#32CD32'},  # Verde: menos de 2 horas
+                                {'range': [120, 240], 'color': '#FFD700'},  # Amarillo: 2-4 horas
+                                {'range': [240, 500], 'color': '#FF0000'}  # Rojo: más de 4 horas
+                            ],
+                            'threshold': {
+                                'line': {'color': "black", 'width': 4},
+                                'thickness': 0.75,
+                                'value': mttr_normalizado
+                            }
+                        }
+                    ))
+                    fig_mttr.update_layout(height=250)
+                    st.plotly_chart(fig_mttr, use_container_width=True)
+                    
+                    if mttr <= 120:
+                        st.success("✅ Excelente")
+                    elif mttr <= 240:
+                        st.warning("⚠️ Regular")
+                    else:
+                        st.error("❌ Crítico")
+                
+                # =============================================
+                # SECCIÓN 2: MÉTRICAS NUMÉRICAS BÁSICAS
+                # =============================================
+                st.subheader("📈 Métricas Operativas")
+                
+                # Fila 2: 4 métricas numéricas
+                col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
                     st.metric("Tiempo Disponible", f"{metrics.get('td', 0):,.0f}", "minutos")
-                
                 with col2:
                     st.metric("Tiempo Operativo", f"{metrics.get('to', 0):,.0f}", "minutos")
-                
                 with col3:
-                    st.metric("Tiempo Fuera de Servicio", f"{metrics.get('tfs', 0):,.0f}", "minutos")
-                
+                    st.metric("TFS Total", f"{metrics.get('tfs', 0):,.0f}", "minutos")
                 with col4:
-                    disponibilidad = metrics.get('disponibilidad', 0)
-                    status = "🟢" if disponibilidad >= 80 else "🟡" if disponibilidad >= 20 else "🔴"
-                    st.metric("Disponibilidad", f"{disponibilidad:.1f}%", delta=None, delta_color="normal")
-                    st.write(status)
+                    st.metric("Horas Extras Acum", f"{metrics.get('horas_extras_acumuladas', 0)/60:,.1f}", "horas")
                 
-                with col5:
-                    indisponibilidad = metrics.get('indisponibilidad', 0)
-                    status = "🟢" if indisponibilidad <= 20 else "🟡" if indisponibilidad <= 80 else "🔴"
-                    st.metric("Indisponibilidad", f"{indisponibilidad:.1f}%", delta=None, delta_color="normal")
-                    st.write(status)
+                # =============================================
+                # SECCIÓN 3: GRÁFICOS DE DISPONIBILIDAD Y TFS
+                # =============================================
+                st.subheader("📊 Evolución de Indicadores")
                 
-                with col6:
-                    tr = metrics.get('tr', 0)
-                    st.metric("TR", f"{tr:,.0f}", "minutos")
-                
-                with col7:
-                    tfc = metrics.get('tfc', 0)
-                    st.metric("TFC", f"{tfc:,.0f}", "minutos")
-                
-                # Gráficos
+                # Fila 3: 2 gráficos en la primera fila
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     if not weekly_data.empty:
                         fig = px.line(weekly_data, x='SEMANA_STR', y='DISPO_SEMANAL', 
-                                     title='Disponibilidad por Semana (%)',
-                                     labels={'SEMANA_STR': 'Semana', 'DISPO_SEMANAL': 'Disponibilidad (%)'})
-                        fig.update_traces(line_color=COLOR_PALETTE['pastel'][0], mode='lines+markers')
+                                    title='📈 Disponibilidad por Semana',
+                                    labels={'SEMANA_STR': 'Semana', 'DISPO_SEMANAL': 'Disponibilidad (%)'},
+                                    color_discrete_sequence=['#32CD32'])
+                        fig.update_traces(mode='lines+markers', line_width=3)
+                        fig.add_hrect(y0=80, y1=100, line_width=0, fillcolor="green", opacity=0.1)
+                        fig.add_hrect(y0=60, y1=80, line_width=0, fillcolor="yellow", opacity=0.1)
+                        fig.add_hrect(y0=0, y1=60, line_width=0, fillcolor="red", opacity=0.1)
                         st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No hay datos semanales para mostrar")
                 
                 with col2:
                     if not weekly_data.empty:
                         fig = go.Figure()
-                        fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TR_MIN'], name='TR', 
-                                            marker_color='#FFD700'))
-                        fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TFC_MIN'], name='TFC', 
-                                            marker_color='#FFB3BA'))
-                        fig.update_layout(title='TR y TFC por Semana', barmode='stack')
+                        fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TFS_MIN'], 
+                                            name='TFS', marker_color='#FF6B6B'))
+                        fig.add_trace(go.Scatter(x=weekly_data['SEMANA_STR'], y=weekly_data['TR_MIN'], 
+                                                name='TR', mode='lines+markers', line_color='#FFD700', yaxis='y2'))
+                        fig.update_layout(
+                            title='📊 TFS y TR por Semana',
+                            yaxis=dict(title='TFS (min)', titlefont=dict(color='#FF6B6B')),
+                            yaxis2=dict(title='TR (min)', titlefont=dict(color='#FFD700'), 
+                                    overlaying='y', side='right'),
+                            hovermode='x unified'
+                        )
                         st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No hay datos semanales para mostrar")
-            else:
-                st.info("No hay datos para mostrar con los filtros seleccionados")
-        
-        # Pestaña TFS - COMPLETA CON UBICACIÓN TÉCNICA
-        with tab2:
-            st.header("Análisis de TFS")
-            
-            if not filtered_data.empty:
-                # Filtrar solo registros que afectan producción
-                filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
                 
+                # Fila 4: 2 gráficos más
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    if not weekly_data.empty:
-                        fig = px.line(weekly_data, x='SEMANA_STR', y='TFS_MIN',
-                                     title='TFS por Semana (Minutos)',
-                                     labels={'SEMANA_STR': 'Semana', 'TFS_MIN': 'TFS (min)'})
-                        fig.update_traces(line_color=COLOR_PALETTE['pastel'][1], mode='lines+markers')
+                    if not weekly_emergency_data.empty:
+                        fig = px.bar(weekly_emergency_data, x='SEMANA_STR', y='NUM_ORDENES_EMERGENCIA',
+                                    title='🚨 Correctivos de Emergencia por Semana',
+                                    labels={'SEMANA_STR': 'Semana', 'NUM_ORDENES_EMERGENCIA': 'N° de Órdenes'},
+                                    color='NUM_ORDENES_EMERGENCIA',
+                                    color_continuous_scale='Reds')
                         st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No hay datos semanales para mostrar")
                 
                 with col2:
-                    tfs_por_equipo = filtered_afecta.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
-                    tfs_por_equipo = tfs_por_equipo.sort_values('TFS_MIN', ascending=False).head(10)
-                    
-                    if not tfs_por_equipo.empty:
-                        fig = px.bar(tfs_por_equipo, x='EQUIPO', y='TFS_MIN',
-                                    title='TFS por Equipo',
-                                    labels={'EQUIPO': 'Equipo', 'TFS_MIN': 'TFS (min)'})
-                        fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
+                    if not weekly_data.empty:
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(x=weekly_data['SEMANA_STR'], y=weekly_data['TFC_MIN'],
+                                                name='TFC', mode='lines+markers', 
+                                                line=dict(color='#4ECDC4', width=3)))
+                        fig.update_layout(title='🔧 TFC por Semana',
+                                        xaxis_title='Semana',
+                                        yaxis_title='TFC (min)')
                         st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No hay datos de TFS por equipo")
                 
-                # TFS por conjunto
-                tfs_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TFS_MIN'].sum().reset_index()
-                tfs_por_conjunto = tfs_por_conjunto.sort_values('TFS_MIN', ascending=False).head(10)
+                # =============================================
+                # SECCIÓN 4: ANÁLISIS POR EQUIPO Y CONJUNTO
+                # =============================================
+                st.subheader("🔍 Análisis por Equipo y Conjunto")
                 
-                if not tfs_por_conjunto.empty:
-                    fig = px.bar(tfs_por_conjunto, x='CONJUNTO', y='TFS_MIN',
-                                title='TFS por Conjunto',
-                                labels={'CONJUNTO': 'Conjunto', 'TFS_MIN': 'TFS (min)'})
-                    fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("No hay datos de TFS por conjunto")
-                
-                # TFS por Ubicación Técnica (NUEVO)
-                if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
-                    tfs_por_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA')['TFS_MIN'].sum().reset_index()
-                    tfs_por_ubicacion = tfs_por_ubicacion.sort_values('TFS_MIN', ascending=False).head(10)
-                    
-                    if not tfs_por_ubicacion.empty:
-                        fig = px.bar(tfs_por_ubicacion, x='UBICACIÓN TÉCNICA', y='TFS_MIN',
-                                    title='TFS por Ubicación Técnica',
-                                    labels={'UBICACIÓN TÉCNICA': 'Ubicación Técnica', 'TFS_MIN': 'TFS (min)'})
-                        fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No hay datos de TFS por ubicación técnica")
-                
-                # Tablas de resumen - AHORA CON 3 COLUMNAS
-                st.subheader("Resúmenes TFS")
-                col1, col2, col3 = st.columns(3)
+                # Fila 5: 4 gráficos pequeños
+                col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.write("**Resumen TFS por Equipo**")
-                    resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({
-                        'TFS_MIN': 'sum',
-                        'TR_MIN': 'sum',
-                        'TFC_MIN': 'sum'
-                    }).reset_index()
-                    st.dataframe(resumen_equipo, use_container_width=True)
+                    # TFS por Equipo (Top 5)
+                    filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
+                    if not filtered_afecta.empty:
+                        tfs_por_equipo = filtered_afecta.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
+                        tfs_por_equipo = tfs_por_equipo.nlargest(5, 'TFS_MIN')
+                        fig = px.bar(tfs_por_equipo, x='EQUIPO', y='TFS_MIN',
+                                    title='🛠️ TFS Top 5 Equipos',
+                                    labels={'EQUIPO': 'Equipo', 'TFS_MIN': 'TFS (min)'},
+                                    color='TFS_MIN', color_continuous_scale='Reds')
+                        fig.update_layout(showlegend=False)
+                        st.plotly_chart(fig, use_container_width=True)
                 
                 with col2:
-                    st.write("**Resumen TFS por Conjunto**")
-                    resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({
-                        'TFS_MIN': 'sum',
-                        'TR_MIN': 'sum',
-                        'TFC_MIN': 'sum'
-                    }).reset_index()
-                    st.dataframe(resumen_conjunto.head(10), use_container_width=True)
+                    # TR por Conjunto (Top 5)
+                    if not filtered_afecta.empty:
+                        tr_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TR_MIN'].sum().reset_index()
+                        tr_por_conjunto = tr_por_conjunto.nlargest(5, 'TR_MIN')
+                        fig = px.bar(tr_por_conjunto, x='CONJUNTO', y='TR_MIN',
+                                    title='🔧 TR Top 5 Conjuntos',
+                                    labels={'CONJUNTO': 'Conjunto', 'TR_MIN': 'TR (min)'},
+                                    color='TR_MIN', color_continuous_scale='Oranges')
+                        fig.update_layout(showlegend=False)
+                        st.plotly_chart(fig, use_container_width=True)
                 
                 with col3:
-                    st.write("**Resumen TFS por Ubicación Técnica**")
-                    if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
-                        resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({
-                            'TFS_MIN': 'sum',
-                            'TR_MIN': 'sum',
-                            'TFC_MIN': 'sum'
-                        }).reset_index()
-                        st.dataframe(resumen_ubicacion.head(10), use_container_width=True)
-                    else:
-                        st.info("No hay datos de ubicación técnica")
+                    # Distribución de Tipo de Mantenimiento
+                    if 'TIPO DE MTTO' in filtered_data.columns:
+                        tipo_mtto_counts = filtered_data['TIPO DE MTTO'].value_counts().reset_index()
+                        tipo_mtto_counts.columns = ['TIPO_MTTO', 'COUNT']
+                        fig = px.pie(tipo_mtto_counts, values='COUNT', names='TIPO_MTTO',
+                                    title='📋 Distribución Tipo Mtto',
+                                    hole=0.4,
+                                    color_discrete_sequence=px.colors.qualitative.Set3)
+                        fig.update_traces(textposition='inside', textinfo='percent+label')
+                        st.plotly_chart(fig, use_container_width=True)
+                
+                with col4:
+                    # Costos de Horas Extras por Técnico (Top 5)
+                    if not accumulated_costs.empty:
+                        top_tecnicos = accumulated_costs.nlargest(5, 'COSTO_TOTAL')
+                        fig = px.bar(top_tecnicos, x='TECNICO', y='COSTO_TOTAL',
+                                    title='💰 Costos Horas Extras Top 5',
+                                    labels={'TECNICO': 'Técnico', 'COSTO_TOTAL': 'Costo Total ($)'},
+                                    color='COSTO_TOTAL', color_continuous_scale='Greens')
+                        fig.update_layout(xaxis_tickangle=-45, showlegend=False)
+                        st.plotly_chart(fig, use_container_width=True)
+                
+                # =============================================
+                # SECCIÓN 5: CUMPLIMIENTO DEL PLAN
+                # =============================================
+                st.subheader("📅 Cumplimiento del Plan 2026")
+                
+                if not monthly_plan_data.empty:
+                    # Fila 6: 2 gráficos de cumplimiento
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Gráfico de barras apiladas de cumplimiento
+                        fig = go.Figure()
+                        fig.add_trace(go.Bar(x=monthly_plan_data['MES_NOMBRE'],
+                                            y=monthly_plan_data['ORDENES_RETRASADAS'],
+                                            name='Retrasadas',
+                                            marker_color='#FFA500'))
+                        fig.add_trace(go.Bar(x=monthly_plan_data['MES_NOMBRE'],
+                                            y=monthly_plan_data['ORDENES_EN_EJECUCION'],
+                                            name='En Ejecución',
+                                            marker_color='#FFD700'))
+                        fig.add_trace(go.Bar(x=monthly_plan_data['MES_NOMBRE'],
+                                            y=monthly_plan_data['ORDENES_CULMINADAS'],
+                                            name='Culminadas',
+                                            marker_color='#32CD32'))
+                        fig.update_layout(barmode='stack',
+                                        title='📊 Estado de Órdenes por Mes',
+                                        xaxis_title='Mes',
+                                        yaxis_title='Número de Órdenes',
+                                        height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    with col2:
+                        # Gráfico de línea de cumplimiento porcentual
+                        fig = px.line(monthly_plan_data, x='MES_NOMBRE', y='CUMPLIMIENTO_PCT',
+                                    title='📈 Porcentaje de Cumplimiento',
+                                    labels={'MES_NOMBRE': 'Mes', 'CUMPLIMIENTO_PCT': 'Cumplimiento (%)'},
+                                    markers=True)
+                        fig.update_traces(line_color='#32CD32', line_width=3)
+                        fig.add_hrect(y0=90, y1=100, line_width=0, fillcolor="green", opacity=0.1)
+                        fig.add_hrect(y0=70, y1=90, line_width=0, fillcolor="yellow", opacity=0.1)
+                        fig.add_hrect(y0=0, y1=70, line_width=0, fillcolor="red", opacity=0.1)
+                        fig.update_layout(height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+                
+                # =============================================
+                # SECCIÓN 6: RESUMEN ESTADÍSTICO
+                # =============================================
+                st.subheader("📋 Resumen Estadístico")
+                
+                # Fila 7: 4 tarjetas de métricas
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Fallas", 
+                            f"{reliability_metrics.get('total_fallas_emergency', 0) if reliability_metrics else 0}",
+                            help="Número de correctivos de emergencia")
+                
+                with col2:
+                    st.metric("Horas Normales Técnicos", 
+                            f"{accumulated_tech_data['TR_HORAS'].sum() if not accumulated_tech_data.empty else 0:,.1f}",
+                            "horas")
+                
+                with col3:
+                    st.metric("Costo Total Horas Extras",
+                            f"${accumulated_costs['COSTO_TOTAL'].sum() if not accumulated_costs.empty else 0:,.2f}")
+                
+                with col4:
+                    # Eficiencia Global
+                    eficiencia_global = ((metrics.get('to', 0) / metrics.get('td', 1)) * 100) if metrics.get('td', 0) > 0 else 0
+                    st.metric("Eficiencia Global", f"{eficiencia_global:.1f}%")
+                
+                # =============================================
+                # SECCIÓN 7: DATOS FILTRADOS (opcional, colapsado)
+                # =============================================
+                with st.expander("🔍 Ver Datos Filtrados Detallados"):
+                    st.dataframe(
+                        filtered_data[['FECHA_DE_INICIO', 'EQUIPO', 'CONJUNTO', 'TIPO DE MTTO', 
+                                    'TR_MIN', 'TFS_MIN', 'TFC_MIN', 'RESPONSABLE']].head(50),
+                        use_container_width=True
+                    )
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
+                
+                # Pestaña TFS - COMPLETA CON UBICACIÓN TÉCNICA
+                with tab2:
+                    st.header("Análisis de TFS")
+                    
+                    if not filtered_data.empty:
+                        # Filtrar solo registros que afectan producción
+                        filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if not weekly_data.empty:
+                                fig = px.line(weekly_data, x='SEMANA_STR', y='TFS_MIN',
+                                            title='TFS por Semana (Minutos)',
+                                            labels={'SEMANA_STR': 'Semana', 'TFS_MIN': 'TFS (min)'})
+                                fig.update_traces(line_color=COLOR_PALETTE['pastel'][1], mode='lines+markers')
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.info("No hay datos semanales para mostrar")
+                        
+                        with col2:
+                            tfs_por_equipo = filtered_afecta.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
+                            tfs_por_equipo = tfs_por_equipo.sort_values('TFS_MIN', ascending=False).head(10)
+                            
+                            if not tfs_por_equipo.empty:
+                                fig = px.bar(tfs_por_equipo, x='EQUIPO', y='TFS_MIN',
+                                            title='TFS por Equipo',
+                                            labels={'EQUIPO': 'Equipo', 'TFS_MIN': 'TFS (min)'})
+                                fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.info("No hay datos de TFS por equipo")
+                        
+                        # TFS por conjunto
+                        tfs_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TFS_MIN'].sum().reset_index()
+                        tfs_por_conjunto = tfs_por_conjunto.sort_values('TFS_MIN', ascending=False).head(10)
+                        
+                        if not tfs_por_conjunto.empty:
+                            fig = px.bar(tfs_por_conjunto, x='CONJUNTO', y='TFS_MIN',
+                                        title='TFS por Conjunto',
+                                        labels={'CONJUNTO': 'Conjunto', 'TFS_MIN': 'TFS (min)'})
+                            fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("No hay datos de TFS por conjunto")
+                        
+                        # TFS por Ubicación Técnica (NUEVO)
+                        if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
+                            tfs_por_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA')['TFS_MIN'].sum().reset_index()
+                            tfs_por_ubicacion = tfs_por_ubicacion.sort_values('TFS_MIN', ascending=False).head(10)
+                            
+                            if not tfs_por_ubicacion.empty:
+                                fig = px.bar(tfs_por_ubicacion, x='UBICACIÓN TÉCNICA', y='TFS_MIN',
+                                            title='TFS por Ubicación Técnica',
+                                            labels={'UBICACIÓN TÉCNICA': 'Ubicación Técnica', 'TFS_MIN': 'TFS (min)'})
+                                fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.info("No hay datos de TFS por ubicación técnica")
+                        
+                        # Tablas de resumen - AHORA CON 3 COLUMNAS
+                        st.subheader("Resúmenes TFS")
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.write("**Resumen TFS por Equipo**")
+                            resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({
+                                'TFS_MIN': 'sum',
+                                'TR_MIN': 'sum',
+                                'TFC_MIN': 'sum'
+                            }).reset_index()
+                            st.dataframe(resumen_equipo, use_container_width=True)
+                        
+                        with col2:
+                            st.write("**Resumen TFS por Conjunto**")
+                            resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({
+                                'TFS_MIN': 'sum',
+                                'TR_MIN': 'sum',
+                                'TFC_MIN': 'sum'
+                            }).reset_index()
+                            st.dataframe(resumen_conjunto.head(10), use_container_width=True)
+                        
+                        with col3:
+                            st.write("**Resumen TFS por Ubicación Técnica**")
+                            if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
+                                resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({
+                                    'TFS_MIN': 'sum',
+                                    'TR_MIN': 'sum',
+                                    'TFC_MIN': 'sum'
+                                }).reset_index()
+                                st.dataframe(resumen_ubicacion.head(10), use_container_width=True)
+                            else:
+                                st.info("No hay datos de ubicación técnica")
+                    else:
+                        st.info("No hay datos para mostrar con los filtros seleccionados")
         
         # Pestaña TR - COMPLETA CON UBICACIÓN TÉCNICA
         with tab3:
