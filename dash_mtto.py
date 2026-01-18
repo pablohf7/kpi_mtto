@@ -1462,47 +1462,73 @@ def main():
                 # =============================================
                 st.subheader("📊 Evolución de Indicadores")
                 
-                # Fila 3: 2 gráficos en la primera fila
+                 # Fila 3: 2 gráficos en la primera fila
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     if not weekly_data.empty and 'DISPO_SEMANAL' in weekly_data.columns:
-                        fig = px.line(weekly_data, x='SEMANA_STR', y='DISPO_SEMANAL', 
-                                    title='📈 Disponibilidad por Semana',
-                                    labels={'SEMANA_STR': 'Semana', 'DISPO_SEMANAL': 'Disponibilidad (%)'},
-                                    color_discrete_sequence=['#32CD32'])
-                        fig.update_traces(mode='lines+markers', line_width=3)
-                        fig.add_hrect(y0=80, y1=100, line_width=0, fillcolor="green", opacity=0.1)
-                        fig.add_hrect(y0=60, y1=80, line_width=0, fillcolor="yellow", opacity=0.1)
-                        fig.add_hrect(y0=0, y1=60, line_width=0, fillcolor="red", opacity=0.1)
-                        st.plotly_chart(fig, use_container_width=True)
+                        # Gráfico de disponibilidad
+                        try:
+                            fig = px.line(weekly_data, x='SEMANA_STR', y='DISPO_SEMANAL', 
+                                        title='📈 Disponibilidad por Semana',
+                                        labels={'SEMANA_STR': 'Semana', 'DISPO_SEMANAL': 'Disponibilidad (%)'},
+                                        color_discrete_sequence=['#32CD32'])
+                            fig.update_traces(mode='lines+markers', line_width=3)
+                            fig.add_hrect(y0=80, y1=100, line_width=0, fillcolor="green", opacity=0.1)
+                            fig.add_hrect(y0=60, y1=80, line_width=0, fillcolor="yellow", opacity=0.1)
+                            fig.add_hrect(y0=0, y1=60, line_width=0, fillcolor="red", opacity=0.1)
+                            st.plotly_chart(fig, use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Error al crear gráfico de disponibilidad: {str(e)[:100]}")
                     else:
                         st.info("No hay datos de disponibilidad semanal")
                 
                 with col2:
-                    if not weekly_data.empty and 'TFS_MIN' in weekly_data.columns and 'TR_MIN' in weekly_data.columns:
-                        fig = go.Figure()
-                        fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TFS_MIN'], 
-                                            name='TFS', marker_color='#FF6B6B'))
-                        fig.add_trace(go.Scatter(x=weekly_data['SEMANA_STR'], y=weekly_data['TR_MIN'], 
-                                                name='TR', mode='lines+markers', line_color='#FFD700', yaxis='y2'))
-                        
-                        # CORRECCIÓN: Formato correcto para el layout con dos ejes Y
-                        fig.update_layout(
-                            title='📊 TFS y TR por Semana',
-                            yaxis=dict(
-                                title='TFS (min)',
-                                titlefont=dict(color='#FF6B6B')
-                            ),
-                            yaxis2=dict(
-                                title='TR (min)',
-                                titlefont=dict(color='#FFD700'),
-                                overlaying='y',
-                                side='right'
-                            ),
-                            hovermode='x unified'
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
+                    # Gráfico alternativo si el de TFS/TR falla
+                    if not weekly_data.empty:
+                        try:
+                            # Intentar crear gráfico simple
+                            fig = go.Figure()
+                            
+                            # Solo TFS si está disponible
+                            if 'TFS_MIN' in weekly_data.columns:
+                                fig.add_trace(go.Bar(
+                                    x=weekly_data['SEMANA_STR'], 
+                                    y=weekly_data['TFS_MIN'], 
+                                    name='TFS',
+                                    marker_color='#FF6B6B'
+                                ))
+                            
+                            # Solo TR si está disponible
+                            if 'TR_MIN' in weekly_data.columns:
+                                fig.add_trace(go.Scatter(
+                                    x=weekly_data['SEMANA_STR'], 
+                                    y=weekly_data['TR_MIN'], 
+                                    name='TR',
+                                    mode='lines+markers',
+                                    line=dict(color='#FFD700', width=3)
+                                ))
+                            
+                            fig.update_layout(
+                                title='📊 TFS y TR por Semana',
+                                xaxis_title='Semana',
+                                yaxis_title='Minutos',
+                                hovermode='x unified'
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                        except Exception as e:
+                            # Si falla, mostrar gráfico más simple
+                            st.error(f"Error en gráfico TFS/TR: {str(e)[:100]}")
+                            st.info("Mostrando gráfico alternativo...")
+                            
+                            # Gráfico alternativo solo de TFS
+                            if 'TFS_MIN' in weekly_data.columns:
+                                fig = px.bar(weekly_data, x='SEMANA_STR', y='TFS_MIN',
+                                            title='TFS por Semana',
+                                            labels={'SEMANA_STR': 'Semana', 'TFS_MIN': 'TFS (min)'})
+                                st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("No hay datos de TFS y TR semanal")
                 
