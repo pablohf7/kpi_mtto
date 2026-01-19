@@ -1694,6 +1694,101 @@ def main():
                     st.metric("Eficiencia Global", f"{eficiencia_global:.1f}%")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
+        # Pestaña TFS - COMPLETA CON UBICACIÓN TÉCNICA
+        with tab2:
+            st.header("Análisis de TFS")
+            
+            if not filtered_data.empty:
+                # Filtrar solo registros que afectan producción
+                filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if not weekly_data.empty:
+                        fig = px.line(weekly_data, x='SEMANA_STR', y='TFS_MIN',
+                                     title='TFS por Semana (Minutos)',
+                                     labels={'SEMANA_STR': 'Semana', 'TFS_MIN': 'TFS (min)'})
+                        fig.update_traces(line_color=COLOR_PALETTE['pastel'][1], mode='lines+markers')
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos semanales para mostrar")
+                
+                with col2:
+                    tfs_por_equipo = filtered_afecta.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
+                    tfs_por_equipo = tfs_por_equipo.sort_values('TFS_MIN', ascending=False).head(10)
+                    
+                    if not tfs_por_equipo.empty:
+                        fig = px.bar(tfs_por_equipo, x='EQUIPO', y='TFS_MIN',
+                                    title='TFS por Equipo',
+                                    labels={'EQUIPO': 'Equipo', 'TFS_MIN': 'TFS (min)'})
+                        fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de TFS por equipo")
+                
+                # TFS por conjunto
+                tfs_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TFS_MIN'].sum().reset_index()
+                tfs_por_conjunto = tfs_por_conjunto.sort_values('TFS_MIN', ascending=False).head(10)
+                
+                if not tfs_por_conjunto.empty:
+                    fig = px.bar(tfs_por_conjunto, x='CONJUNTO', y='TFS_MIN',
+                                title='TFS por Conjunto',
+                                labels={'CONJUNTO': 'Conjunto', 'TFS_MIN': 'TFS (min)'})
+                    fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No hay datos de TFS por conjunto")
+                
+                # TFS por Ubicación Técnica (NUEVO)
+                if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
+                    tfs_por_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA')['TFS_MIN'].sum().reset_index()
+                    tfs_por_ubicacion = tfs_por_ubicacion.sort_values('TFS_MIN', ascending=False).head(10)
+                    
+                    if not tfs_por_ubicacion.empty:
+                        fig = px.bar(tfs_por_ubicacion, x='UBICACIÓN TÉCNICA', y='TFS_MIN',
+                                    title='TFS por Ubicación Técnica',
+                                    labels={'UBICACIÓN TÉCNICA': 'Ubicación Técnica', 'TFS_MIN': 'TFS (min)'})
+                        fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No hay datos de TFS por ubicación técnica")
+                
+                # Tablas de resumen - AHORA CON 3 COLUMNAS
+                st.subheader("Resúmenes TFS")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write("**Resumen TFS por Equipo**")
+                    resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({
+                        'TFS_MIN': 'sum',
+                        'TR_MIN': 'sum',
+                        'TFC_MIN': 'sum'
+                    }).reset_index()
+                    st.dataframe(resumen_equipo, use_container_width=True)
+                
+                with col2:
+                    st.write("**Resumen TFS por Conjunto**")
+                    resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({
+                        'TFS_MIN': 'sum',
+                        'TR_MIN': 'sum',
+                        'TFC_MIN': 'sum'
+                    }).reset_index()
+                    st.dataframe(resumen_conjunto.head(10), use_container_width=True)
+                
+                with col3:
+                    st.write("**Resumen TFS por Ubicación Técnica**")
+                    if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
+                        resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({
+                            'TFS_MIN': 'sum',
+                            'TR_MIN': 'sum',
+                            'TFC_MIN': 'sum'
+                        }).reset_index()
+                        st.dataframe(resumen_ubicacion.head(10), use_container_width=True)
+                    else:
+                        st.info("No hay datos de ubicación técnica")
+            else:
+                st.info("No hay datos para mostrar con los filtros seleccionados")
             
         # Pestaña TR - COMPLETA CON UBICACIÓN TÉCNICA
         with tab3:
