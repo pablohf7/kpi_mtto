@@ -9,6 +9,7 @@ import base64
 from datetime import datetime, timedelta
 import re
 import hashlib
+import time
 
 # ============================================
 # CONFIGURACIÓN DE AUTENTICACIÓN
@@ -51,10 +52,13 @@ def verificar_login(email, password):
 
 # Función para mostrar el formulario de login
 def mostrar_login():
-    st.title("🔐 Dashboard de Mantenimiento Fortidex")
+    st.markdown(
+    "<h1 style='text-align: center;'>🔐 Dashboard de Mantenimiento Mecánico Fortidex</h1>",
+    unsafe_allow_html=True
+)
     
     st.markdown("""
-    <div style='text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px;'>
+    <div style='text-align: center; padding: 20px; background-color: #ffa500; border-radius: 10px;'>
         <h1 style='color: #1f77b4;'>Acceso Restringido</h1>
         <p>Por favor, ingrese sus credenciales para acceder al sistema.</p>
     </div>
@@ -62,13 +66,14 @@ def mostrar_login():
     
     col1, col2, col3 = st.columns([1,2,1])
     
+    
     with col2:
         with st.container():
             st.markdown("<div style='padding: 30px;'>", unsafe_allow_html=True)
             
             email = st.text_input("📧 Correo Electrónico", placeholder="usuario@fortidex.com")
             password = st.text_input("🔑 Contraseña", type="password", placeholder="Ingrese su contraseña")
-            
+        
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 login_btn = st.button("🚀 Iniciar Sesión", use_container_width=True)
@@ -1510,8 +1515,10 @@ def format_date_dd_mm_aaaa(date):
 
 # Interfaz principal
 def main():
-    st.title("📊 Dashboard de Indicadores de Mantenimiento Mecánico Fortidex")
-    
+    st.markdown(
+    "<h1 style='text-align: center;'>📊 Dashboard de Indicadores de Mantenimiento Mecánico Fortidex</h1>",
+    unsafe_allow_html=True
+)       
     # Mostrar información del usuario
     mostrar_info_usuario()
     
@@ -1526,26 +1533,46 @@ def main():
         st.session_state.last_update = None
     
     # CARGA AUTOMÁTICA DESDE GOOGLE SHEETS AL INICIAR
+    # Placeholder para mensajes de carga
+    status_placeholder = st.empty()
+
+    # ------------------ CARGA DE DATOS PRINCIPALES ------------------
     if st.session_state.data.empty:
-        with st.spinner("Cargando datos desde Google Sheets..."):
-            df = load_data_from_google_sheets()
-            if not df.empty:
-                st.session_state.data = df
-                st.session_state.last_update = get_current_datetime_spanish()
-                st.success("✅ Datos cargados correctamente desde Google Sheets")
-            else:
-                st.error("❌ No se pudieron cargar los datos desde Google Sheets")
-    
-    # Cargar datos del personal si no están cargados
+        with status_placeholder.container():
+            with st.spinner("Cargando datos desde Google Sheets..."):
+                df = load_data_from_google_sheets()
+
+                if not df.empty:
+                    st.session_state.data = df
+                    st.session_state.last_update = get_current_datetime_spanish()
+                    st.success("✅ Datos cargados correctamente desde Google Sheets")
+                else:
+                    st.error("❌ No se pudieron cargar los datos desde Google Sheets")
+
+        # Espera mínima para que el usuario vea el mensaje (opcional)
+        time.sleep(5)
+        status_placeholder.empty()  # 🔥 limpia el mensaje
+
+
+    # ------------------ CARGA DE DATOS DE PERSONAL ------------------
+    status_personal = st.empty()
+
     if st.session_state.personal_data.empty:
-        with st.spinner("Cargando datos del personal..."):
-            personal_df = load_personal_data_from_google_sheets()
-            if not personal_df.empty:
-                st.session_state.personal_data = personal_df
-                st.success("✅ Datos del personal cargados correctamente")
-            else:
-                st.warning("⚠️ No se pudieron cargar los datos del personal. La pestaña de costos puede no funcionar correctamente.")
-    
+        with status_personal.container():
+            with st.spinner("Cargando datos del personal..."):
+                personal_df = load_personal_data_from_google_sheets()
+
+                if not personal_df.empty:
+                    st.session_state.personal_data = personal_df
+                    st.success("✅ Datos del personal cargados correctamente")
+                else:
+                    st.warning(
+                        "⚠️ No se pudieron cargar los datos del personal. "
+                        "La pestaña de costos puede no funcionar correctamente."
+                    )
+
+        time.sleep(1)
+        status_personal.empty()  # 🔥 limpia el mensaje
     # Sidebar
     st.sidebar.title("Opciones")
     
