@@ -10,12 +10,10 @@ from datetime import datetime, timedelta
 import re
 import hashlib
 import time
-
 # ============================================
 # CONFIGURACIÓN DE AUTENTICACIÓN
 # ============================================
 
-# Configuración de la página - BARRA LATERAL RECOGIDA POR DEFECTO
 st.set_page_config(
     page_title="Dashboard de Indicadores de Mantenimiento Mecánico Fortidex",
     page_icon="🔧",
@@ -23,7 +21,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Base de datos de usuarios (en producción, usar una base de datos real)
 USUARIOS = {
     "w.jimenez@fortidex.com": {
         "nombre": "Administrador",
@@ -42,74 +39,123 @@ USUARIOS = {
     }
 }
 
-# Función para verificar credenciales
 def verificar_login(email, password):
+    email = (email or "").strip().lower()
     if email in USUARIOS:
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        password_hash = hashlib.sha256((password or "").encode()).hexdigest()
         if USUARIOS[email]["password_hash"] == password_hash:
             return True, USUARIOS[email]
     return False, None
 
-# Función para mostrar el formulario de login
+# ---------------------------
+# NUEVO: Funciones para ENTER
+# ---------------------------
+def do_login():
+    email = st.session_state.get("login_email", "").strip().lower()
+    password = st.session_state.get("login_password", "")
+
+    # Evita intentar login si falta algo
+    if not email or not password:
+        st.session_state["login_msg"] = ("warning", "⚠️ Por favor, complete todos los campos.")
+        return
+
+    login_exitoso, usuario_info = verificar_login(email, password)
+    if login_exitoso:
+        st.session_state["autenticado"] = True
+        st.session_state["usuario"] = usuario_info
+        st.session_state["email"] = email
+        st.session_state["login_msg"] = ("success", f"✅ ¡Bienvenido, {usuario_info['nombre']}!")
+    else:
+        st.session_state["login_msg"] = ("error", "❌ Credenciales incorrectas. Intente nuevamente.")
+
+def clear_login():
+    st.session_state["login_email"] = ""
+    st.session_state["login_password"] = ""
+    st.session_state["login_msg"] = None
+
+# Inicializar estados
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+
+if "login_msg" not in st.session_state:
+    st.session_state["login_msg"] = None
+
+
 def mostrar_login():
     st.markdown(
-    "<h1 style='text-align: center;'>🔐 Dashboard de Mantenimiento Mecánico Fortidex</h1>",
-    unsafe_allow_html=True
-)
-    
+        "<h1 style='text-align: center;'>🔐 Dashboard de Mantenimiento Mecánico Fortidex</h1>",
+        unsafe_allow_html=True
+    )
+
     st.markdown("""
     <div style='text-align: center; padding: 20px; background-color: #ffa500; border-radius: 10px;'>
         <h1 style='color: #1f77b4;'>Acceso Restringido</h1>
         <p>Por favor, ingrese sus credenciales para acceder al sistema.</p>
     </div>
     """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1,2,1])
-    
-    
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+
     with col2:
         with st.container():
             st.markdown("<div style='padding: 30px;'>", unsafe_allow_html=True)
-            
-            email = st.text_input("📧 Correo Electrónico", placeholder="usuario@fortidex.com")
-            password = st.text_input("🔑 Contraseña", type="password", placeholder="Ingrese su contraseña")
-        
+
+            # ✅ Keys + on_change: ENTER ejecuta do_login()
+            st.text_input(
+                "📧 Correo Electrónico",
+                key="login_email",
+                placeholder="usuario@fortidex.com",
+                on_change=do_login
+            )
+            st.text_input(
+                "🔑 Contraseña",
+                key="login_password",
+                type="password",
+                placeholder="Ingrese su contraseña",
+                on_change=do_login
+            )
+
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 login_btn = st.button("🚀 Iniciar Sesión", use_container_width=True)
             with col_btn2:
-                st.button("🔄 Limpiar", use_container_width=True, type="secondary")
-            
+                clear_btn = st.button("🔄 Limpiar", use_container_width=True, type="secondary")
+
+            # Botón -> misma función
             if login_btn:
-                if email and password:
-                    login_exitoso, usuario_info = verificar_login(email, password)
-                    if login_exitoso:
-                        st.session_state["autenticado"] = True
-                        st.session_state["usuario"] = usuario_info
-                        st.session_state["email"] = email
-                        st.success(f"✅ ¡Bienvenido, {usuario_info['nombre']}!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Credenciales incorrectas. Intente nuevamente.")
-                else:
-                    st.warning("⚠️ Por favor, complete todos los campos.")
-            
+                do_login()
+
+            # Limpiar
+            if clear_btn:
+                clear_login()
+                st.rerun()
+
+            # Mostrar mensajes
+            if st.session_state["login_msg"]:
+                tipo, texto = st.session_state["login_msg"]
+                if tipo == "success":
+                    st.success(texto)
+                elif tipo == "error":
+                    st.error(texto)
+                elif tipo == "warning":
+                    st.warning(texto)
+
             st.markdown("</div>", unsafe_allow_html=True)
-            
-            # Información de usuarios de prueba
+
+            # Usuarios de prueba
             with st.expander("👥 Usuarios del Dashboard"):
                 st.markdown("""
                 **Para probar la aplicación, puede usar las siguientes credenciales:**
-                
+
                 | Correo | Contraseña | Rol |
                 |--------|------------|-----|
                 | w.jimenez@fortidex.com | xxxxxx | Administrador |
                 | supervisor@fortidex.com | xxxxxx | Supervisor |
                 | tecnico@fortidex.com | xxxxxx | Técnico |
-                
+
                 *Nota: Estas son credenciales disponibles para el ingreso.*
                 """)
-    
+
     st.markdown("---")
     st.markdown("""
     <div style='text-align: center; color: #666; font-size: 0.9em;'>
@@ -118,14 +164,11 @@ def mostrar_login():
     </div>
     """, unsafe_allow_html=True)
 
-# Verificar autenticación
-if "autenticado" not in st.session_state:
-    st.session_state["autenticado"] = False
 
+# Verificar autenticación
 if not st.session_state["autenticado"]:
     mostrar_login()
     st.stop()
-
 # ============================================
 # CONTINUACIÓN DEL CÓDIGO ORIGINAL CON MEJORAS
 # ============================================
@@ -3286,147 +3329,8 @@ def main():
                 # Información de verificación
                 if abs(suma_categorias - total_planificadas) > 0.1:  # Tolerancia pequeña para decimales
                     st.warning(f"⚠️ **Nota:** La suma de categorías ({suma_categorias}) no coincide exactamente con el total planificado hasta ayer ({total_planificadas}). Esto puede deberse a órdenes con estados diferentes a los definidos.")
-                
-                # =============================================
-                # TABLA DE ÓRDENES DEL MES ACTUAL - CORREGIDA: OT COMO ENTERO Y SIN COLUMNA DE ÍNDICE
-                # =============================================
-                st.subheader("📋 Tabla de Órdenes del Mes Actual")
-                
-                if not ordenes_mes_actual.empty:
-                    # Mostrar información sobre la clasificación
-                    st.info("""
-                    **Clasificación corregida:**
-                    - **RETRASADA:** Estado = 'PENDIENTE' y Fecha inicio < hoy y Fecha fin < hoy
-                    - **EN EJECUCIÓN:** Estado = 'EN PROCESO'
-                    - **POR EJECUTAR EN ENERO:** Estado = 'PENDIENTE' y (Fecha inicio >= hoy o Fecha fin >= hoy)
-                    - **EJECUTADA:** Estado = 'CULMINADO'
-                    """)
-                    
-                    # Mostrar resumen por categoría
-                    resumen_categorias = ordenes_mes_actual['CATEGORIA'].value_counts().reset_index()
-                    resumen_categorias.columns = ['Categoría', 'Cantidad']
-                    
-                    # Ordenar según el orden especificado
-                    orden_categorias = ['RETRASADA', 'EN EJECUCIÓN', 'POR EJECUTAR EN ENERO', 'EJECUTADA']
-                    resumen_categorias['Categoría'] = pd.Categorical(resumen_categorias['Categoría'], 
-                                                                    categories=orden_categorias, 
-                                                                    ordered=True)
-                    resumen_categorias = resumen_categorias.sort_values('Categoría')
-                    
-                    # Mostrar resumen
-                    cols_resumen = st.columns(4)
-                    for idx, (_, row) in enumerate(resumen_categorias.iterrows()):
-                        with cols_resumen[idx % 4]:
-                            if row['Categoría'] == 'RETRASADA':
-                                st.metric("Órdenes Retrasadas", f"{row['Cantidad']}", delta_color="inverse")
-                            elif row['Categoría'] == 'EN EJECUCIÓN':
-                                st.metric("Órdenes en Ejecución", f"{row['Cantidad']}")
-                            elif row['Categoría'] == 'POR EJECUTAR EN ENERO':
-                                st.metric("Por Ejecutar en Enero", f"{row['Cantidad']}")
-                            elif row['Categoría'] == 'EJECUTADA':
-                                st.metric("Órdenes Ejecutadas", f"{row['Cantidad']}")
-                    
-                    # Mostrar tabla completa con formato condicional
-                    st.write(f"**Total de órdenes del mes actual:** {len(ordenes_mes_actual)}")
-                    
-                    # Buscar la columna de número de orden - CORREGIDO
-                    columna_ot = None
-                    posibles_nombres = ['OT', 'N° DE OT', 'N° DE ORDEN', 'NUMERO DE ORDEN', 'N° OT', 'ORDEN']
-                    
-                    for nombre in posibles_nombres:
-                        if nombre in ordenes_mes_actual.columns:
-                            columna_ot = nombre
-                            break
-                    
-                    if columna_ot:
-                        st.success(f"✅ Se encontró la columna de número de orden: **{columna_ot}**")
-                        
-                        # Lista de columnas solicitadas (con el nombre real de la columna OT)
-                        columnas_solicitadas = [columna_ot, 'TIPO DE MTTO', 'EQUIPO', 'FECHA DE INICIO', 'FECHA DE FIN', 'ESTADO', 'CATEGORIA']
-                        
-                        # Verificar qué columnas existen en el DataFrame
-                        columnas_existentes = [col for col in columnas_solicitadas if col in ordenes_mes_actual.columns]
-                        
-                        # Crear DataFrame con las columnas en el orden solicitado
-                        if columnas_existentes:
-                            tabla_mostrar = ordenes_mes_actual[columnas_existentes].copy()
-                            
-                            # CORRECCIÓN 1: Convertir la columna OT a entero (si es numérica)
-                            if columna_ot in tabla_mostrar.columns:
-                                # Intentar convertir a entero
-                                try:
-                                    # Primero, convertir a numérico
-                                    tabla_mostrar[columna_ot] = pd.to_numeric(tabla_mostrar[columna_ot], errors='coerce')
-                                    # Luego, convertir a entero (redondear hacia abajo para números decimales)
-                                    tabla_mostrar[columna_ot] = tabla_mostrar[columna_ot].fillna(0).astype('Int64')
-                                    # Reemplazar 0 con vacío para valores NaN originales
-                                    tabla_mostrar[columna_ot] = tabla_mostrar[columna_ot].replace(0, '')
-                                except Exception as e:
-                                    st.warning(f"No se pudo convertir la columna {columna_ot} a entero: {e}")
-                            
-                            # Renombrar la columna OT para que se muestre como 'N° DE OT' en la tabla
-                            if columna_ot in tabla_mostrar.columns:
-                                tabla_mostrar = tabla_mostrar.rename(columns={columna_ot: 'N° DE OT'})
-                                # Reordenar para que 'N° DE OT' sea la primera
-                                nuevas_columnas = ['N° DE OT'] + [col for col in tabla_mostrar.columns if col != 'N° DE OT']
-                                tabla_mostrar = tabla_mostrar[nuevas_columnas]
-                            
-                            # Función para aplicar color según categoría
-                            def color_categoria(val):
-                                if val == 'RETRASADA':
-                                    return 'background-color: #FFA500; color: black; font-weight: bold'
-                                elif val == 'EN EJECUCIÓN':
-                                    return 'background-color: #FFD700; color: black; font-weight: bold'
-                                elif val == 'POR EJECUTAR EN ENERO':
-                                    return 'background-color: #52b3f3; color: black; font-weight: bold'
-                                elif val == 'EJECUTADA':
-                                    return 'background-color: #32CD32; color: black; font-weight: bold'
-                                return ''
-                            
-                            # CORRECCIÓN 2: Mostrar tabla sin columna de índice
-                            # Crear un estilo para la tabla sin índice
-                            styled_table = tabla_mostrar.style.applymap(color_categoria, subset=['CATEGORIA'])
-                            
-                            # Mostrar tabla sin índice (hide_index=True)
-                            st.dataframe(
-                                styled_table,
-                                use_container_width=True,
-                                height=400,
-                                hide_index=True  # Esta opción elimina la columna de índice
-                            )
-                            
-                            # Mostrar información de depuración para verificar la clasificación
-                            with st.expander("🔍 Ver detalles de clasificación"):
-                                st.write("**Órdenes clasificadas como RETRASADAS:**")
-                                retrasadas = ordenes_mes_actual[ordenes_mes_actual['CATEGORIA'] == 'RETRASADA']
-                                if not retrasadas.empty:
-                                    st.write(f"Número de órdenes retrasadas: {len(retrasadas)}")
-                                    st.write("Detalles:")
-                                    # También ocultar índice en esta tabla de depuración
-                                    st.dataframe(retrasadas[[columna_ot, 'ESTADO', 'FECHA DE INICIO', 'FECHA DE FIN', 'CATEGORIA']], 
-                                               hide_index=True)
-                                else:
-                                    st.info("No hay órdenes clasificadas como retrasadas")
-                            
-                            # Botón para descargar datos
-                            csv = tabla_mostrar.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                label="📥 Descargar tabla como CSV",
-                                data=csv,
-                                file_name=f"ordenes_mes_actual_{datetime.now().strftime('%Y%m%d')}.csv",
-                                mime="text/csv"
-                            )
-                        else:
-                            st.warning("No se encontraron las columnas solicitadas en los datos.")
-                    else:
-                        st.error("❌ **Error:** No se encontró ninguna columna de número de orden. Buscamos: OT, N° DE OT, N° DE ORDEN, NUMERO DE ORDEN")
-                        st.write("**Columnas disponibles:**", list(ordenes_mes_actual.columns))
-                else:
-                    st.info("No hay órdenes planificadas para el mes actual.")
-                
-                # Continuación con los gráficos y tablas restantes...
                 # Gráfico 1: Distribución mensual (CON 4 CATEGORÍAS)
-                st.subheader("📊 Distribución de Órdenes por Mes (CON MEJORA DE FECHA Y CORRECCIONES)")
+                st.subheader("📊 Distribución de Órdenes por Mes")
                 
                 # Crear gráfico de barras apiladas con las 4 categorías
                 fig1 = go.Figure()
@@ -3534,6 +3438,135 @@ def main():
                 )
                 
                 st.plotly_chart(fig1, use_container_width=True)
+                
+                # =============================================
+                # TABLA DE ÓRDENES DEL MES ACTUAL - CORREGIDA: OT COMO ENTERO Y SIN COLUMNA DE ÍNDICE
+                # =============================================
+                st.subheader("📋 Tabla de Órdenes del Mes Actual")
+                
+                if not ordenes_mes_actual.empty:
+                                      
+                    # Mostrar resumen por categoría
+                    resumen_categorias = ordenes_mes_actual['CATEGORIA'].value_counts().reset_index()
+                    resumen_categorias.columns = ['Categoría', 'Cantidad']
+                    
+                    # Ordenar según el orden especificado
+                    orden_categorias = ['RETRASADA', 'EN EJECUCIÓN', 'POR EJECUTAR EN ENERO', 'EJECUTADA']
+                    resumen_categorias['Categoría'] = pd.Categorical(resumen_categorias['Categoría'], 
+                                                                    categories=orden_categorias, 
+                                                                    ordered=True)
+                    resumen_categorias = resumen_categorias.sort_values('Categoría')
+                    
+                    # Mostrar resumen
+                    cols_resumen = st.columns(4)
+                    for idx, (_, row) in enumerate(resumen_categorias.iterrows()):
+                        with cols_resumen[idx % 4]:
+                            if row['Categoría'] == 'RETRASADA':
+                                st.metric("Órdenes Retrasadas", f"{row['Cantidad']}", delta_color="inverse")
+                            elif row['Categoría'] == 'EN EJECUCIÓN':
+                                st.metric("Órdenes en Ejecución", f"{row['Cantidad']}")
+                            elif row['Categoría'] == 'POR EJECUTAR EN ENERO':
+                                st.metric("Por Ejecutar en Enero", f"{row['Cantidad']}")
+                            elif row['Categoría'] == 'EJECUTADA':
+                                st.metric("Órdenes Ejecutadas", f"{row['Cantidad']}")
+                    
+                    # Mostrar tabla completa con formato condicional
+                    st.write(f"**Total de órdenes del mes actual:** {len(ordenes_mes_actual)}")
+                    
+                    # Buscar la columna de número de orden - CORREGIDO
+                    columna_ot = None
+                    posibles_nombres = ['OT', 'N° DE OT', 'N° DE ORDEN', 'NUMERO DE ORDEN', 'N° OT', 'ORDEN']
+                    
+                    for nombre in posibles_nombres:
+                        if nombre in ordenes_mes_actual.columns:
+                            columna_ot = nombre
+                            break
+                    
+                    if columna_ot:
+                                               
+                        # Lista de columnas solicitadas (con el nombre real de la columna OT)
+                        columnas_solicitadas = [columna_ot, 'TIPO DE MTTO', 'EQUIPO', 'FECHA DE INICIO', 'FECHA DE FIN', 'ESTADO', 'CATEGORIA']
+                        
+                        # Verificar qué columnas existen en el DataFrame
+                        columnas_existentes = [col for col in columnas_solicitadas if col in ordenes_mes_actual.columns]
+                        
+                        # Crear DataFrame con las columnas en el orden solicitado
+                        if columnas_existentes:
+                            tabla_mostrar = ordenes_mes_actual[columnas_existentes].copy()
+                            
+                            # CORRECCIÓN 1: Convertir la columna OT a entero (si es numérica)
+                            if columna_ot in tabla_mostrar.columns:
+                                # Intentar convertir a entero
+                                try:
+                                    # Primero, convertir a numérico
+                                    tabla_mostrar[columna_ot] = pd.to_numeric(tabla_mostrar[columna_ot], errors='coerce')
+                                    # Luego, convertir a entero (redondear hacia abajo para números decimales)
+                                    tabla_mostrar[columna_ot] = tabla_mostrar[columna_ot].fillna(0).astype('Int64')
+                                    # Reemplazar 0 con vacío para valores NaN originales
+                                    tabla_mostrar[columna_ot] = tabla_mostrar[columna_ot].replace(0, '')
+                                except Exception as e:
+                                    st.warning(f"No se pudo convertir la columna {columna_ot} a entero: {e}")
+                            
+                            # Renombrar la columna OT para que se muestre como 'N° DE OT' en la tabla
+                            if columna_ot in tabla_mostrar.columns:
+                                tabla_mostrar = tabla_mostrar.rename(columns={columna_ot: 'N° DE OT'})
+                                # Reordenar para que 'N° DE OT' sea la primera
+                                nuevas_columnas = ['N° DE OT'] + [col for col in tabla_mostrar.columns if col != 'N° DE OT']
+                                tabla_mostrar = tabla_mostrar[nuevas_columnas]
+                            
+                            # Función para aplicar color según categoría
+                            def color_categoria(val):
+                                if val == 'RETRASADA':
+                                    return 'background-color: #FFA500; color: black; font-weight: bold'
+                                elif val == 'EN EJECUCIÓN':
+                                    return 'background-color: #FFD700; color: black; font-weight: bold'
+                                elif val == 'POR EJECUTAR EN ENERO':
+                                    return 'background-color: #52b3f3; color: black; font-weight: bold'
+                                elif val == 'EJECUTADA':
+                                    return 'background-color: #32CD32; color: black; font-weight: bold'
+                                return ''
+                            
+                            # CORRECCIÓN 2: Mostrar tabla sin columna de índice
+                            # Crear un estilo para la tabla sin índice
+                            styled_table = tabla_mostrar.style.applymap(color_categoria, subset=['CATEGORIA'])
+                            
+                            # Mostrar tabla sin índice (hide_index=True)
+                            st.dataframe(
+                                styled_table,
+                                use_container_width=True,
+                                height=400,
+                                hide_index=True  # Esta opción elimina la columna de índice
+                            )
+                            
+                            # Mostrar información de depuración para verificar la clasificación
+                            with st.expander("🔍 Ver detalles de clasificación"):
+                                st.write("**Órdenes clasificadas como RETRASADAS:**")
+                                retrasadas = ordenes_mes_actual[ordenes_mes_actual['CATEGORIA'] == 'RETRASADA']
+                                if not retrasadas.empty:
+                                    st.write(f"Número de órdenes retrasadas: {len(retrasadas)}")
+                                    st.write("Detalles:")
+                                    # También ocultar índice en esta tabla de depuración
+                                    st.dataframe(retrasadas[[columna_ot, 'ESTADO', 'FECHA DE INICIO', 'FECHA DE FIN', 'CATEGORIA']], 
+                                               hide_index=True)
+                                else:
+                                    st.info("No hay órdenes clasificadas como retrasadas")
+                            
+                            # Botón para descargar datos
+                            csv = tabla_mostrar.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                label="📥 Descargar tabla como CSV",
+                                data=csv,
+                                file_name=f"ordenes_mes_actual_{datetime.now().strftime('%Y%m%d')}.csv",
+                                mime="text/csv"
+                            )
+                        else:
+                            st.warning("No se encontraron las columnas solicitadas en los datos.")
+                    else:
+                        st.error("❌ **Error:** No se encontró ninguna columna de número de orden. Buscamos: OT, N° DE OT, N° DE ORDEN, NUMERO DE ORDEN")
+                        st.write("**Columnas disponibles:**", list(ordenes_mes_actual.columns))
+                else:
+                    st.info("No hay órdenes planificadas para el mes actual.")
+                
                 
                 # Gráfico 2: Cumplimiento por mes (gráfico de líneas)
                 st.subheader("📈 Cumplimiento por Mes (CON MEJORA DE FECHA Y CORRECCIONES)")
