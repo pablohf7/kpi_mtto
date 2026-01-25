@@ -3291,12 +3291,11 @@ def main():
                     estado_desc = "El plan requiere intervención inmediata (<50%)"
                 
                 # Mostrar indicadores generales (6 columnas)
-                st.subheader("📊 Indicadores Generales del Plan 2026 (CON MEJORA DE FECHA Y CORRECCIONES)")
+                st.subheader("📊 Indicadores Generales del Plan 2026")
                 
                 # Información sobre la mejora aplicada
                 fecha_actual = datetime.now().date()
                 fecha_corte = fecha_actual - timedelta(days=1)
-                st.info(f"**🔍 MEJORA APLICADA:** Solo se consideran órdenes con fecha de inicio y fin hasta **{fecha_corte.strftime('%d/%m/%Y')}** (un día antes de hoy: {fecha_actual.strftime('%d/%m/%Y')})")
                 
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
                 
