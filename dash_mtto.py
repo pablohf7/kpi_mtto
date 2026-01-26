@@ -141,25 +141,11 @@ def mostrar_login():
                     st.warning(texto)
 
             st.markdown("</div>", unsafe_allow_html=True)
-
-            # Usuarios de prueba
-            with st.expander("👥 Usuarios del Dashboard"):
-                st.markdown("""
-                **Para probar la aplicación, puede usar las siguientes credenciales:**
-
-                | Correo | Contraseña | Rol |
-                |--------|------------|-----|
-                | w.jimenez@fortidex.com | xxxxxx | Administrador |
-                | supervisor@fortidex.com | xxxxxx | Supervisor |
-                | tecnico@fortidex.com | xxxxxx | Técnico |
-
-                *Nota: Estas son credenciales disponibles para el ingreso.*
-                """)
-
+           
     st.markdown("---")
     st.markdown("""
     <div style='text-align: center; color: #666; font-size: 0.9em;'>
-        <p>© 2024 Fortidex - Sistema de Gestión de Mantenimiento</p>
+        <p>© 2026 Fortidex - Sistema de Gestión de Mantenimiento</p>
         <p>Versión 2.0 | Acceso restringido a personal autorizado</p>
     </div>
     """, unsafe_allow_html=True)
