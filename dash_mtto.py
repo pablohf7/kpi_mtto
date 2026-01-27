@@ -27,7 +27,7 @@ USUARIOS = {
         "password_hash": hashlib.sha256("admin123".encode()).hexdigest(),
         "rol": "admin"
     },
-    "gerencia@grancerv.con": {
+    "gerencia@grancerv.com": {
         "nombre": "Promotor",
         "password_hash": hashlib.sha256("grancerv123".encode()).hexdigest(),
         "rol": "promotor"
