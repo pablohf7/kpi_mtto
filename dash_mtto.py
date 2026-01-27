@@ -27,10 +27,10 @@ USUARIOS = {
         "password_hash": hashlib.sha256("admin123".encode()).hexdigest(),
         "rol": "admin"
     },
-    "supervisor@fortidex.com": {
-        "nombre": "Supervisor",
-        "password_hash": hashlib.sha256("super123".encode()).hexdigest(),
-        "rol": "supervisor"
+    "gerencia@grancerv.con": {
+        "nombre": "Promotor",
+        "password_hash": hashlib.sha256("grancerv123".encode()).hexdigest(),
+        "rol": "promotor"
     },
     "tecnico@fortidex.com": {
         "nombre": "Técnico",
