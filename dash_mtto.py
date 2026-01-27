@@ -23,12 +23,12 @@ st.set_page_config(
 
 USUARIOS = {
     "w.jimenez@fortidex.com": {
-        "nombre": "Administrador",
+        "nombre": "Wilmer Jimenez",
         "password_hash": hashlib.sha256("admin123".encode()).hexdigest(),
-        "rol": "admin"
+        "rol": "administrador"
     },
     "gerencia@grancerv.com": {
-        "nombre": "Promotor",
+        "nombre": "Jairo Granga",
         "password_hash": hashlib.sha256("grancerv123".encode()).hexdigest(),
         "rol": "promotor"
     },
