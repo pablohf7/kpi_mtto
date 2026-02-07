@@ -3098,23 +3098,11 @@ def main():
         # Pestaña Costos Horas Extras Personal Técnico - MODIFICADA PARA USAR DATOS DE DETALLE_HE
         with tab8:
             st.header("💰 Costos de Horas Extras del Personal Técnico (desde DETALLE_HE)")
-            
-            # Mostrar información sobre la fuente de datos
-            st.info("""
-            **📋 Fuente de datos:** Los costos de horas extras se calculan a partir de la hoja 'DETALLE_HE' que contiene:
-            - Técnico (RESPONSABLE_N)
-            - Horas extras trabajadas (HORAS EXTRAS)
-            - Valor en dólares (SALDO HORAS EXTRAS)
-            - Fechas de inicio y fin de las horas extras
-            """)
-            
+                       
             if not filtered_overtime.empty:
                 # Calcular costos (con la función mejorada)
                 weekly_costs, accumulated_costs, mensaje_calculo = calculate_overtime_costs_from_details(filtered_overtime, st.session_state.personal_data)
-                
-                # Mostrar mensaje de estado
-                st.info(f"Estado del cálculo: {mensaje_calculo}")
-                
+                             
                 if weekly_costs.empty or accumulated_costs.empty:
                     # Mostrar información de depuración
                     with st.expander("🔍 Depuración - Ver detalles de los datos", expanded=True):
