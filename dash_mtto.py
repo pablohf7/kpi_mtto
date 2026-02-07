@@ -186,6 +186,208 @@ COLOR_PALETTE = {
 }
 
 # ============================================
+# NUEVO: Función para cargar datos de horas extras desde Google Sheets
+# ============================================
+
+@st.cache_data(ttl=300)
+def load_overtime_data_from_google_sheets():
+    """Carga específicamente datos de DETALLE_HE (horas extras)"""
+    try:
+        sheet_id = "1X3xgXkeyoei0WkgoNV54zx83XkIKhDlOVEo93lsaFB0"
+        gsheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+        
+        st.info("📥 Cargando datos de HORAS EXTRAS desde hoja 'DETALLE_HE'...")
+        
+        # Leer la hoja específica
+        df = pd.read_excel(gsheet_url, sheet_name='DETALLE_HE')
+        
+        st.success(f"✅ Datos crudos de DETALLE_HE cargados: {len(df)} registros")
+        
+        # Mostrar estructura específica de DETALLE_HE
+        st.info("📋 **Estructura de DETALLE_HE:**")
+        st.info("   - RESPONSABLE_N: Nombres de técnicos")
+        st.info("   - RESPONSABLE: Códigos ID de técnicos")
+        st.info("   - INICIO_HORAS_EXTRAS: Fecha de inicio")
+        st.info("   - HORAS EXTRAS: Cantidad de horas")
+        st.info("   - SALDO  HORAS EXTRAS: Valor en dólares")
+        
+        # Limpiar datos específicos para DETALLE_HE
+        df_clean = clean_overtime_data(df)
+        
+        # Mostrar estadísticas después de limpiar
+        if not df_clean.empty:
+            st.success(f"✅ Datos de horas extras procesados: {len(df_clean)} registros")
+            
+            if 'RESPONSABLE' in df_clean.columns:
+                tecnicos = df_clean['RESPONSABLE'].nunique()
+                st.info(f"   👷 Técnicos únicos (nombres): {tecnicos}")
+            
+            if 'HORAS_EXTRAS' in df_clean.columns:
+                total_horas = df_clean['HORAS_EXTRAS'].sum()
+                st.info(f"   ⏰ Horas extras totales: {total_horas:.2f} horas")
+            
+            if 'SALDO_HORAS_EXTRAS' in df_clean.columns:
+                total_saldo = df_clean['SALDO_HORAS_EXTRAS'].sum()
+                st.info(f"   💰 Valor total horas extras: ${total_saldo:,.2f}")
+        
+        return df_clean
+    except Exception as e:
+        st.error(f"❌ Error cargando DETALLE_HE: {e}")
+        return pd.DataFrame()
+
+# Agregar esta función después de cargar los datos
+def verify_overtime_data(overtime_df):
+    """Verifica la integridad de los datos de horas extras"""
+    if overtime_df.empty:
+        return "❌ No hay datos cargados"
+    
+    issues = []
+    
+    # Verificar columnas requeridas
+    required_cols = ['INICIO_HORAS_EXTRAS', 'RESPONSABLE', 'HORAS_EXTRAS', 'SALDO_HORAS_EXTRAS']
+    missing_cols = [col for col in required_cols if col not in overtime_df.columns]
+    
+    if missing_cols:
+        issues.append(f"Faltan columnas: {missing_cols}")
+    
+    # Verificar fechas
+    if 'INICIO_HORAS_EXTRAS' in overtime_df.columns:
+        # Verificar si es datetime
+        if not pd.api.types.is_datetime64_any_dtype(overtime_df['INICIO_HORAS_EXTRAS']):
+            issues.append("INICIO_HORAS_EXTRAS no es tipo datetime")
+        else:
+            # Verificar valores nulos
+            null_dates = overtime_df['INICIO_HORAS_EXTRAS'].isna().sum()
+            if null_dates > 0:
+                issues.append(f"Hay {null_dates} fechas nulas en INICIO_HORAS_EXTRAS")
+    
+    # Verificar datos
+    if 'HORAS_EXTRAS' in overtime_df.columns:
+        zero_hours = (overtime_df['HORAS_EXTRAS'] == 0).sum()
+        if zero_hours == len(overtime_df):
+            issues.append("Todas las horas extras son 0")
+    
+    if issues:
+        return "⚠️ " + "; ".join(issues)
+    else:
+        return "✅ Datos OK"
+# ============================================
+# FUNCIÓN DE LIMPIEZA PARA COLUMNA RESPONSABLE
+# ============================================
+
+def clean_responsable_column(df):
+    """
+    Limpia la columna RESPONSABLE:
+    - Convierte a string
+    - Reemplaza NaN por vacío
+    - Elimina espacios en blanco
+    """
+    if 'RESPONSABLE' in df.columns:
+        # Convertir a string y manejar NaN
+        df['RESPONSABLE'] = df['RESPONSABLE'].astype(str)
+        df['RESPONSABLE'] = df['RESPONSABLE'].replace('nan', '').replace('None', '')
+        df['RESPONSABLE'] = df['RESPONSABLE'].str.strip()
+    return df
+
+# Reemplaza la función clean_overtime_data con esta versión corregida:
+def clean_overtime_data(df):
+    """
+    Limpia datos específicamente de la hoja 'DETALLE_HE'
+    Aquí: RESPONSABLE = código ID, RESPONSABLE_N = nombre del técnico
+    """
+    df_clean = df.copy()
+    
+    # Normalizar nombres de columnas
+    df_clean.columns = [str(col).strip().upper() for col in df_clean.columns]
+    
+    print(f"🔍 Columnas en DETALLE_HE después de normalizar: {df_clean.columns.tolist()}")
+    
+    # CRÍTICO: En DETALLE_HE, RESPONSABLE_N es el nombre, RESPONSABLE es el código ID
+    # Vamos a mantener RESPONSABLE_CODIGO para el código y RESPONSABLE para el nombre
+    
+    if 'RESPONSABLE_N' in df_clean.columns:
+        # RESPONSABLE_N contiene el NOMBRE del técnico en DETALLE_HE
+        df_clean['RESPONSABLE_NOMBRE'] = df_clean['RESPONSABLE_N'].astype(str).str.strip()
+        print(f"✅ Columna RESPONSABLE_NOMBRE creada desde RESPONSABLE_N")
+    else:
+        df_clean['RESPONSABLE_NOMBRE'] = ''
+        print(f"⚠️ RESPONSABLE_N no encontrado, columna RESPONSABLE_NOMBRE vacía")
+    
+    if 'RESPONSABLE' in df_clean.columns:
+        # RESPONSABLE contiene el CÓDIGO ID del técnico en DETALLE_HE
+        df_clean['RESPONSABLE_CODIGO'] = df_clean['RESPONSABLE'].astype(str).str.strip()
+        print(f"✅ Columna RESPONSABLE_CODIGO creada desde RESPONSABLE")
+    else:
+        df_clean['RESPONSABLE_CODIGO'] = ''
+        print(f"⚠️ RESPONSABLE no encontrado, columna RESPONSABLE_CODIGO vacía")
+    
+    # Para la aplicación, usaremos RESPONSABLE_NOMBRE como la columna principal
+    # Renombramos RESPONSABLE_NOMBRE a RESPONSABLE para consistencia con el resto de la app
+    df_clean['RESPONSABLE'] = df_clean['RESPONSABLE_NOMBRE']
+    print(f"✅ Columna RESPONSABLE creada con nombres de técnicos (desde RESPONSABLE_N)")
+    
+    # Manejar columnas de horas extras con espacios
+    if 'HORAS EXTRAS' in df_clean.columns:
+        df_clean = df_clean.rename(columns={'HORAS EXTRAS': 'HORAS_EXTRAS'})
+        print(f"✅ Renombrada 'HORAS EXTRAS' a 'HORAS_EXTRAS'")
+    
+    if 'SALDO  HORAS EXTRAS' in df_clean.columns:
+        df_clean = df_clean.rename(columns={'SALDO  HORAS EXTRAS': 'SALDO_HORAS_EXTRAS'})
+        print(f"✅ Renombrada 'SALDO  HORAS EXTRAS' a 'SALDO_HORAS_EXTRAS'")
+    
+    # Convertir fechas
+    if 'INICIO_HORAS_EXTRAS' in df_clean.columns:
+        print(f"🕐 Convirtiendo INICIO_HORAS_EXTRAS a datetime...")
+        try:
+            df_clean['INICIO_HORAS_EXTRAS'] = pd.to_datetime(
+                df_clean['INICIO_HORAS_EXTRAS'], 
+                errors='coerce',
+                dayfirst=True
+            )
+            valid_dates = df_clean['INICIO_HORAS_EXTRAS'].notna().sum()
+            print(f"✅ {valid_dates} de {len(df_clean)} fechas convertidas correctamente")
+        except Exception as e:
+            print(f"❌ Error convirtiendo fechas: {e}")
+            df_clean['INICIO_HORAS_EXTRAS'] = pd.NaT
+    
+    if 'FIN_HORAS_EXTRAS' in df_clean.columns:
+        df_clean['FIN_HORAS_EXTRAS'] = pd.to_datetime(
+            df_clean['FIN_HORAS_EXTRAS'], 
+            errors='coerce',
+            dayfirst=True
+        )
+    
+    # Convertir horas extras a numérico
+    if 'HORAS_EXTRAS' in df_clean.columns:
+        df_clean['HORAS_EXTRAS'] = pd.to_numeric(df_clean['HORAS_EXTRAS'], errors='coerce').fillna(0)
+        df_clean['H_EXTRA_MIN'] = df_clean['HORAS_EXTRAS'] * 60
+        print(f"✅ HORAS_EXTRAS convertida a numérico")
+    
+    # Convertir saldo a numérico
+    if 'SALDO_HORAS_EXTRAS' in df_clean.columns:
+        # Limpiar formato si es string
+        if df_clean['SALDO_HORAS_EXTRAS'].dtype == 'object':
+            df_clean['SALDO_HORAS_EXTRAS'] = df_clean['SALDO_HORAS_EXTRAS'].astype(str)
+            df_clean['SALDO_HORAS_EXTRAS'] = df_clean['SALDO_HORAS_EXTRAS'].str.replace('[^\d\.\-]', '', regex=True)
+        
+        df_clean['SALDO_HORAS_EXTRAS'] = pd.to_numeric(df_clean['SALDO_HORAS_EXTRAS'], errors='coerce').fillna(0)
+        print(f"✅ SALDO_HORAS_EXTRAS convertida a numérico")
+    
+    # Mantener OT_ID como OT
+    if 'OT_ID' in df_clean.columns:
+        df_clean['OT'] = df_clean['OT_ID'].astype(str).str.strip()
+        print(f"✅ Columna OT creada desde OT_ID")
+    
+    # Estadísticas finales
+    print(f"📊 ESTADÍSTICAS FINALES DETALLE_HE:")
+    print(f"   - Total registros: {len(df_clean)}")
+    print(f"   - Técnicos únicos (nombres): {df_clean['RESPONSABLE'].nunique()}")
+    print(f"   - Técnicos únicos (códigos): {df_clean['RESPONSABLE_CODIGO'].nunique() if 'RESPONSABLE_CODIGO' in df_clean.columns else 0}")
+    print(f"   - Horas extras totales: {df_clean['HORAS_EXTRAS'].sum() if 'HORAS_EXTRAS' in df_clean.columns else 0}")
+    print(f"   - Saldo total: {df_clean['SALDO_HORAS_EXTRAS'].sum() if 'SALDO_HORAS_EXTRAS' in df_clean.columns else 0}")
+    
+    return df_clean
+# ============================================
 # FUNCIÓN SIMPLIFICADA: Calcular tiempo disponible basado en días
 # ============================================
 
@@ -204,7 +406,7 @@ def calcular_tiempo_disponible(fecha_inicio, fecha_fin):
 # FUNCIÓN MODIFICADA: Calcular métricas con tiempo disponible dinámico
 # ============================================
 
-def calculate_metrics(df, fecha_inicio, fecha_fin):
+def calculate_metrics(df, fecha_inicio, fecha_fin, overtime_data=None):
     """Calcula métricas usando tiempo disponible basado en días"""
     if df.empty:
         return {}
@@ -252,8 +454,11 @@ def calculate_metrics(df, fecha_inicio, fecha_fin):
     else:
         m['mp_pct'] = m['mbc_pct'] = m['mce_pct'] = m['mcp_pct'] = m['mms_pct'] = 0
     
-    # Horas extras acumuladas
-    m['horas_extras_acumuladas'] = df['H_EXTRA_MIN'].sum() if 'H_EXTRA_MIN' in df.columns else 0
+    # Horas extras acumuladas - AHORA DESDE DATOS DE HORAS EXTRAS
+    if overtime_data is not None and not overtime_data.empty:
+        m['horas_extras_acumuladas'] = overtime_data['H_EXTRA_MIN'].sum() if 'H_EXTRA_MIN' in overtime_data.columns else 0
+    else:
+        m['horas_extras_acumuladas'] = 0
     
     return m
 
@@ -567,6 +772,8 @@ def separar_tecnicos(df):
             filas_separadas.append(row)
     
     df_resultado = pd.DataFrame(filas_separadas)
+    # Asegurar que la columna RESPONSABLE sea string
+    df_resultado['RESPONSABLE'] = df_resultado['RESPONSABLE'].astype(str).str.strip()
     return df_resultado
 
 @st.cache_data(ttl=300)
@@ -581,212 +788,79 @@ def load_personal_data_from_google_sheets():
         st.error(f"Error al cargar datos del personal desde Google Sheets: {e}")
         return pd.DataFrame()
 
-def calculate_overtime_costs(filtered_data, personal_data):
-    if filtered_data.empty:
-        return pd.DataFrame(), pd.DataFrame(), "No hay datos filtrados"
+# ============================================
+# NUEVA FUNCIÓN: Calcular costos de horas extras desde datos DETALLE_HE
+# ============================================
+
+def calculate_overtime_costs_from_details(overtime_data, personal_data):
+    """Calcula costos de horas extras basados en datos de DETALLE_HE"""
+    if overtime_data.empty:
+        return pd.DataFrame(), pd.DataFrame(), "No hay datos de horas extras en el período seleccionado"
     
-    filtered_data_separado = separar_tecnicos(filtered_data)
-    filtered_with_overtime = filtered_data_separado[filtered_data_separado['H_EXTRA_MIN'] > 0].copy()
+    # Verificar columnas necesarias
+    required_columns = ['RESPONSABLE', 'H_EXTRA_MIN', 'SALDO_HORAS_EXTRAS', 'INICIO_HORAS_EXTRAS']
+    missing_columns = [col for col in required_columns if col not in overtime_data.columns]
     
-    if filtered_with_overtime.empty:
-        return pd.DataFrame(), pd.DataFrame(), "No hay registros con horas extras (H_EXTRA_MIN > 0)"
+    if missing_columns:
+        st.warning(f"Faltan columnas en datos de horas extras: {missing_columns}")
+        return pd.DataFrame(), pd.DataFrame(), f"Faltan columnas: {missing_columns}"
     
-    if 'RESPONSABLE' not in filtered_with_overtime.columns:
-        return pd.DataFrame(), pd.DataFrame(), "No existe la columna 'RESPONSABLE' en los datos"
-    
-    filtered_with_overtime = filtered_with_overtime[filtered_with_overtime['RESPONSABLE'].notna()]
-    
-    if filtered_with_overtime.empty:
-        return pd.DataFrame(), pd.DataFrame(), "No hay registros con responsable asignado"
-    
-    df_costs = filtered_with_overtime.copy()
-    df_costs['H_EXTRA_HORAS'] = df_costs['H_EXTRA_MIN'] / 60
-    df_costs['SEMANA'] = df_costs['FECHA_DE_INICIO'].dt.isocalendar().week
-    df_costs['AÑO'] = df_costs['FECHA_DE_INICIO'].dt.year
-    df_costs['SEMANA_STR'] = df_costs['AÑO'].astype(str) + '-S' + df_costs['SEMANA'].astype(str).str.zfill(2)
-    
-    if personal_data.empty:
-        df_costs['COSTO_TOTAL'] = 0
-        df_costs['TECNICO'] = df_costs['RESPONSABLE']
+    try:
+        df_costs = overtime_data.copy()
         
-        weekly_costs = df_costs.groupby(['SEMANA_STR', 'TECNICO']).agg({
-            'COSTO_TOTAL': 'sum',
-            'H_EXTRA_HORAS': 'sum'
+        # Limpiar y preparar datos
+        df_costs = df_costs[df_costs['RESPONSABLE'].notna()]
+        df_costs['RESPONSABLE'] = df_costs['RESPONSABLE'].astype(str).str.strip()
+        
+        if df_costs.empty:
+            return pd.DataFrame(), pd.DataFrame(), "No hay registros con responsable asignado"
+        
+        # Convertir minutos a horas
+        df_costs['H_EXTRA_HORAS'] = df_costs['H_EXTRA_MIN'] / 60
+        
+        # Obtener semana y año
+        if not pd.api.types.is_datetime64_any_dtype(df_costs['INICIO_HORAS_EXTRAS']):
+            df_costs['INICIO_HORAS_EXTRAS'] = pd.to_datetime(df_costs['INICIO_HORAS_EXTRAS'], errors='coerce')
+        
+        df_costs = df_costs[df_costs['INICIO_HORAS_EXTRAS'].notna()]
+        
+        if df_costs.empty:
+            return pd.DataFrame(), pd.DataFrame(), "No hay fechas válidas en los datos"
+        
+        df_costs['SEMANA'] = df_costs['INICIO_HORAS_EXTRAS'].dt.isocalendar().week
+        df_costs['AÑO'] = df_costs['INICIO_HORAS_EXTRAS'].dt.year
+        df_costs['SEMANA_STR'] = df_costs['AÑO'].astype(str) + '-S' + df_costs['SEMANA'].astype(str).str.zfill(2)
+        
+        # Asegurar que SEMANA_STR sea string
+        df_costs['SEMANA_STR'] = df_costs['SEMANA_STR'].astype(str)
+        
+        # Agrupar por semana y técnico
+        weekly_costs = df_costs.groupby(['SEMANA_STR', 'RESPONSABLE']).agg({
+            'SALDO_HORAS_EXTRAS': 'sum',
+            'H_EXTRA_HORAS': 'sum',
+            'H_EXTRA_MIN': 'sum'
         }).reset_index()
+        weekly_costs = weekly_costs.rename(columns={'RESPONSABLE': 'TECNICO', 'SALDO_HORAS_EXTRAS': 'COSTO_TOTAL'})
         
-        accumulated_costs = df_costs.groupby('TECNICO').agg({
-            'COSTO_TOTAL': 'sum',
-            'H_EXTRA_HORAS': 'sum'
-        }).reset_index().sort_values('H_EXTRA_HORAS', ascending=False)
+        # Agrupar por técnico (acumulado)
+        accumulated_costs = df_costs.groupby('RESPONSABLE').agg({
+            'SALDO_HORAS_EXTRAS': 'sum',
+            'H_EXTRA_HORAS': 'sum',
+            'H_EXTRA_MIN': 'sum'
+        }).reset_index()
+        accumulated_costs = accumulated_costs.rename(columns={'RESPONSABLE': 'TECNICO', 'SALDO_HORAS_EXTRAS': 'COSTO_TOTAL'})
+        accumulated_costs = accumulated_costs.sort_values('COSTO_TOTAL', ascending=False)
         
-        return weekly_costs, accumulated_costs, "Sin datos de personal - mostrando solo horas"
-    
-    personal_data.columns = [str(col).strip().upper() for col in personal_data.columns]
-    
-    nombre_col = None
-    costo_50_col = None
-    costo_100_col = None
-    
-    for col in personal_data.columns:
-        col_upper = col.upper()
-        if 'APELLIDO' in col_upper and 'NOMBRE' in col_upper:
-            nombre_col = col
-            break
-    
-    if nombre_col is None:
-        for col in personal_data.columns:
-            if 'NOMBRE' in col.upper() or 'TECNICO' in col.upper() or 'RESPONSABLE' in col.upper():
-                nombre_col = col
-                break
-    
-    if nombre_col is None:
-        nombre_col = personal_data.columns[0]
-    
-    for col in personal_data.columns:
-        col_upper = col.upper()
-        if 'VALOR' in col_upper and 'HORAS' in col_upper and '50' in col_upper:
-            costo_50_col = col
-        elif 'VALOR' in col_upper and 'HORAS' in col_upper and '100' in col_upper:
-            costo_100_col = col
-    
-    if costo_50_col is None:
-        for col in personal_data.columns:
-            if '50' in col or 'CINCUENTA' in col.upper():
-                costo_50_col = col
-                break
-    
-    if costo_100_col is None:
-        for col in personal_data.columns:
-            if '100' in col or 'CIEN' in col.upper():
-                costo_100_col = col
-                break
-    
-    costos_tecnicos = {}
-    tecnicos_personal = set()
-    
-    for _, row in personal_data.iterrows():
-        nombre = str(row[nombre_col]).strip()
-        if not nombre or pd.isna(nombre):
-            continue
+        total_costo = accumulated_costs['COSTO_TOTAL'].sum()
+        total_horas = accumulated_costs['H_EXTRA_HORAS'].sum()
+        costo_promedio_hora = total_costo / total_horas if total_horas > 0 else 0
         
-        nombre_normalizado = ' '.join(nombre.split()).upper()
-        tecnicos_personal.add(nombre_normalizado)
+        mensaje = f"Cálculo exitoso | Costo total: ${total_costo:,.2f} | Horas totales: {total_horas:,.1f} | Costo promedio/hora: ${costo_promedio_hora:,.2f}"
         
-        costo_50 = 0
-        costo_100 = 0
-        
-        if costo_50_col:
-            try:
-                valor = row[costo_50_col]
-                if pd.notna(valor):
-                    if isinstance(valor, str):
-                        valor = valor.replace('$', '').replace(',', '').replace(' ', '').strip()
-                    costo_50 = float(valor)
-            except (ValueError, TypeError):
-                costo_50 = 0
-        
-        if costo_100_col:
-            try:
-                valor = row[costo_100_col]
-                if pd.notna(valor):
-                    if isinstance(valor, str):
-                        valor = valor.replace('$', '').replace(',', '').replace(' ', '').strip()
-                    costo_100 = float(valor)
-            except (ValueError, TypeError):
-                costo_100 = 0
-        
-        costos_tecnicos[nombre_normalizado] = {
-            '50%': costo_50,
-            '100%': costo_100
-        }
-    
-    costos_detallados = []
-    tecnicos_no_encontrados = set()
-    tecnicos_encontrados = set()
-    registros_con_tipo_indeterminado = 0
-    
-    for idx, row in df_costs.iterrows():
-        nombre_tecnico = str(row['RESPONSABLE']).strip()
-        if not nombre_tecnico or pd.isna(nombre_tecnico):
-            continue
-            
-        nombre_tecnico_normalizado = ' '.join(nombre_tecnico.split()).upper()
-        tipo_hora = '50%'
-        
-        if 'VALOR DE HORAS' in row and pd.notna(row['VALOR DE HORAS']):
-            valor_hora_str = str(row['VALOR DE HORAS']).upper()
-            if '100%' in valor_hora_str or '100' in valor_hora_str or 'CIEN' in valor_hora_str:
-                tipo_hora = '100%'
-            elif '50%' in valor_hora_str or '50' in valor_hora_str or 'CINCUENTA' in valor_hora_str:
-                tipo_hora = '50%'
-        
-        elif 'TIPO HORA EXTRA' in row and pd.notna(row['TIPO HORA EXTRA']):
-            tipo_str = str(row['TIPO HORA EXTRA']).upper()
-            if '100' in tipo_str:
-                tipo_hora = '100%'
-            elif '50' in tipo_str:
-                tipo_hora = '50%'
-        else:
-            registros_con_tipo_indeterminado += 1
-        
-        costo_por_hora = 0
-        if nombre_tecnico_normalizado in costos_tecnicos:
-            costo_por_hora = costos_tecnicos[nombre_tecnico_normalizado].get(tipo_hora, 0)
-            tecnicos_encontrados.add(nombre_tecnico)
-        else:
-            tecnicos_no_encontrados.add(nombre_tecnico)
-            for tecnico_personal in tecnicos_personal:
-                if nombre_tecnico_normalizado in tecnico_personal or tecnico_personal in nombre_tecnico_normalizado:
-                    costo_por_hora = costos_tecnicos[tecnico_personal].get(tipo_hora, 0)
-                    tecnicos_encontrados.add(nombre_tecnico)
-                    break
-        
-        horas_extra = row['H_EXTRA_HORAS']
-        costo_total = horas_extra * costo_por_hora
-        
-        costos_detallados.append({
-            'SEMANA_STR': row['SEMANA_STR'],
-            'TECNICO': nombre_tecnico,
-            'TECNICO_NORMALIZADO': nombre_tecnico_normalizado,
-            'TIPO_HORA': tipo_hora,
-            'HORAS_EXTRA': horas_extra,
-            'COSTO_POR_HORA': costo_por_hora,
-            'COSTO_TOTAL': costo_total,
-            'H_EXTRA_MIN': row['H_EXTRA_MIN']
-        })
-    
-    if not costos_detallados:
-        return pd.DataFrame(), pd.DataFrame(), "No se pudieron calcular costos (lista vacía)"
-    
-    df_costos = pd.DataFrame(costos_detallados)
-    
-    weekly_costs = df_costos.groupby(['SEMANA_STR', 'TECNICO']).agg({
-        'COSTO_TOTAL': 'sum',
-        'HORAS_EXTRA': 'sum',
-        'H_EXTRA_MIN': 'sum'
-    }).reset_index()
-    
-    accumulated_costs = df_costos.groupby('TECNICO').agg({
-        'COSTO_TOTAL': 'sum',
-        'HORAS_EXTRA': 'sum',
-        'H_EXTRA_MIN': 'sum'
-    }).reset_index().sort_values('COSTO_TOTAL', ascending=False)
-    
-    mensaje_extra = f" | Técnicos encontrados: {len(tecnicos_encontrados)}"
-    if tecnicos_no_encontrados:
-        mensaje_extra += f" | Técnicos no encontrados: {len(tecnicos_no_encontrados)}"
-    if registros_con_tipo_indeterminado > 0:
-        mensaje_extra += f" | Registros con tipo indeterminado (asumido 50%): {registros_con_tipo_indeterminado}"
-    
-    total_costo = accumulated_costs['COSTO_TOTAL'].sum()
-    total_horas = accumulated_costs['HORAS_EXTRA'].sum()
-    costo_promedio_hora = total_costo / total_horas if total_horas > 0 else 0
-    
-    mensaje_extra += f" | Costo total: ${total_costo:,.2f}"
-    mensaje_extra += f" | Horas totales: {total_horas:,.2f}"
-    mensaje_extra += f" | Costo promedio/hora: ${costo_promedio_hora:,.2f}"
-    
-    return weekly_costs, accumulated_costs, f"Cálculo exitoso{mensaje_extra}"
+        return weekly_costs, accumulated_costs, mensaje
+    except Exception as e:
+        st.error(f"Error al calcular costos de horas extras: {e}")
+        return pd.DataFrame(), pd.DataFrame(), f"Error en cálculo: {str(e)}"
 
 def show_detailed_costs_info(weekly_costs, accumulated_costs, personal_data):
     """Muestra información detallada sobre los costos calculados"""
@@ -804,7 +878,7 @@ def show_detailed_costs_info(weekly_costs, accumulated_costs, personal_data):
         st.metric("Costo Total Horas Extras", f"${total_costo:,.2f}")
     
     with col2:
-        total_horas = accumulated_costs['HORAS_EXTRA'].sum()
+        total_horas = accumulated_costs['H_EXTRA_HORAS'].sum()
         st.metric("Horas Extras Totales", f"{total_horas:,.1f} horas")
     
     with col3:
@@ -819,9 +893,9 @@ def show_detailed_costs_info(weekly_costs, accumulated_costs, personal_data):
     
     tabla_detalle = accumulated_costs.copy()
     tabla_detalle['COSTO_TOTAL_FMT'] = tabla_detalle['COSTO_TOTAL'].apply(lambda x: f"${x:,.2f}")
-    tabla_detalle['HORAS_EXTRA_FMT'] = tabla_detalle['HORAS_EXTRA'].apply(lambda x: f"{x:,.2f}")
+    tabla_detalle['HORAS_EXTRA_FMT'] = tabla_detalle['H_EXTRA_HORAS'].apply(lambda x: f"{x:,.2f}")
     tabla_detalle['COSTO_POR_HORA'] = tabla_detalle.apply(
-        lambda x: x['COSTO_TOTAL'] / x['HORAS_EXTRA'] if x['HORAS_EXTRA'] > 0 else 0, 
+        lambda x: x['COSTO_TOTAL'] / x['H_EXTRA_HORAS'] if x['H_EXTRA_HORAS'] > 0 else 0, 
         axis=1
     )
     tabla_detalle['COSTO_POR_HORA_FMT'] = tabla_detalle['COSTO_POR_HORA'].apply(lambda x: f"${x:,.2f}")
@@ -838,7 +912,7 @@ def show_detailed_costs_info(weekly_costs, accumulated_costs, personal_data):
         with st.expander("Ver datos semanales detallados"):
             weekly_formatted = weekly_costs.copy()
             weekly_formatted['COSTO_TOTAL_FMT'] = weekly_formatted['COSTO_TOTAL'].apply(lambda x: f"${x:,.2f}")
-            weekly_formatted['HORAS_EXTRA_FMT'] = weekly_formatted['HORAS_EXTRA'].apply(lambda x: f"{x:,.2f}")
+            weekly_formatted['HORAS_EXTRA_FMT'] = weekly_formatted['H_EXTRA_HORAS'].apply(lambda x: f"{x:,.2f}")
             
             st.dataframe(
                 weekly_formatted[['SEMANA_STR', 'TECNICO', 'HORAS_EXTRA_FMT', 'COSTO_TOTAL_FMT']],
@@ -891,7 +965,7 @@ def clean_and_prepare_data(df):
         df_clean['UBICACIÓN TÉCNICA'] = df_clean['UBICACIÓN TÉCNICA NOMBRE']
     elif 'UBICACIÓN TÉCNICA' not in df_clean.columns and 'UBICACION TECNICA' in df_clean.columns:
         df_clean = df_clean.rename(columns={'UBICACION TECNICA': 'UBICACIÓN TÉCNICA'})
-    elif 'UBICACIÓN TÉCNICA' not in df_clean.columns and 'Ubicación Técnica' in df_clean.columns:
+    elif 'UBICACIÓN TÉCNica' not in df_clean.columns and 'Ubicación Técnica' in df_clean.columns:
         df_clean = df_clean.rename(columns={'Ubicación Técnica': 'UBICACIÓN TÉCNICA'})
     
     if 'EQUIPO NOMBRE' in df_clean.columns:
@@ -919,16 +993,105 @@ def clean_and_prepare_data(df):
             axis=1
         )
     else:
-        df_clean['TR_MIN'] = df_clean['TR_MIN_CALCULADO']
+        df_clean['TR_MIN'] = df_clean['TR_MIN_CALCULado']
     
-    numeric_columns = ['TR_MIN', 'TFC_MIN', 'TFS_MIN', 'TDISPONIBLE_OLD', 'TIEMPO_PROG_MIN', 'H_EXTRA_MIN']
+    numeric_columns = ['TR_MIN', 'TFC_MIN', 'TFS_MIN', 'TDISPONIBLE_OLD', 'TIEMPO_PROG_MIN']
     for col in numeric_columns:
         if col in df_clean.columns:
             df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(0)
     
+    # Eliminar columna de horas extras ya que ahora usamos DETALLE_HE
+    if 'H_EXTRA_MIN' in df_clean.columns:
+        df_clean = df_clean.drop(columns=['H_EXTRA_MIN'])
+    
+    # Asegurar que la columna RESPONSABLE sea string
+    if 'RESPONSABLE' in df_clean.columns:
+        df_clean['RESPONSABLE'] = df_clean['RESPONSABLE'].astype(str).str.strip()
+    
     return df_clean
 
-def get_weekly_technician_hours(df):
+# ============================================
+# NUEVAS FUNCIONES: Obtener datos de horas extras por técnico desde DETALLE_HE
+# ============================================
+
+def get_weekly_overtime_data(overtime_data):
+    """Obtiene datos semanales de horas extras desde DETALLE_HE"""
+    if overtime_data.empty:
+        return pd.DataFrame()
+    
+    # Verificar que tenemos las columnas necesarias
+    required_cols = ['INICIO_HORAS_EXTRAS', 'RESPONSABLE', 'H_EXTRA_MIN', 'SALDO_HORAS_EXTRAS']
+    for col in required_cols:
+        if col not in overtime_data.columns:
+            st.warning(f"Falta columna {col} en datos de horas extras")
+            return pd.DataFrame()
+    
+    df_weekly = overtime_data.copy()
+    
+    # Asegurarnos de que la columna de fecha sea datetime
+    if not pd.api.types.is_datetime64_any_dtype(df_weekly['INICIO_HORAS_EXTRAS']):
+        df_weekly['INICIO_HORAS_EXTRAS'] = pd.to_datetime(df_weekly['INICIO_HORAS_EXTRAS'], errors='coerce')
+    
+    # Eliminar filas con fechas inválidas
+    df_weekly = df_weekly[df_weekly['INICIO_HORAS_EXTRAS'].notna()]
+    
+    if df_weekly.empty:
+        return pd.DataFrame()
+    
+    # Asegurar que RESPONSABLE sea string
+    df_weekly['RESPONSABLE'] = df_weekly['RESPONSABLE'].astype(str).str.strip()
+    
+    # Obtener semana y año
+    try:
+        df_weekly['SEMANA'] = df_weekly['INICIO_HORAS_EXTRAS'].dt.isocalendar().week
+        df_weekly['AÑO'] = df_weekly['INICIO_HORAS_EXTRAS'].dt.year
+        df_weekly['SEMANA_STR'] = df_weekly.apply(
+            lambda x: f"{int(x['AÑO'])}-S{int(x['SEMANA']):02d}", 
+            axis=1
+        )
+    except Exception as e:
+        st.error(f"Error al calcular semana: {e}")
+        return pd.DataFrame()
+    
+    # Agrupar por semana y técnico
+    try:
+        weekly_overtime = df_weekly.groupby(['SEMANA_STR', 'AÑO', 'SEMANA', 'RESPONSABLE']).agg({
+            'H_EXTRA_MIN': 'sum',
+            'SALDO_HORAS_EXTRAS': 'sum'
+        }).reset_index()
+        
+        weekly_overtime['H_EXTRA_HORAS'] = weekly_overtime['H_EXTRA_MIN'] / 60
+        
+        # Crear columna numérica para ordenar correctamente las semanas
+        weekly_overtime['SEMANA_NUM'] = weekly_overtime['AÑO'] * 100 + weekly_overtime['SEMANA']
+        weekly_overtime = weekly_overtime.sort_values('SEMANA_NUM')
+        
+        return weekly_overtime
+    except Exception as e:
+        st.error(f"Error al agrupar datos de horas extras: {e}")
+        return pd.DataFrame()
+
+def get_accumulated_overtime_data(overtime_data):
+    """Obtiene datos acumulados de horas extras desde DETALLE_HE"""
+    if overtime_data.empty or 'RESPONSABLE' not in overtime_data.columns:
+        return pd.DataFrame()
+    
+    # Asegurar que RESPONSABLE sea string
+    overtime_data['RESPONSABLE'] = overtime_data['RESPONSABLE'].astype(str).str.strip()
+    
+    # Agrupar por técnico
+    overtime_tech_data = overtime_data.groupby('RESPONSABLE').agg({
+        'H_EXTRA_MIN': 'sum',
+        'SALDO_HORAS_EXTRAS': 'sum'
+    }).reset_index()
+    
+    overtime_tech_data['H_EXTRA_HORAS'] = overtime_tech_data['H_EXTRA_MIN'] / 60
+    overtime_tech_data = overtime_tech_data.sort_values('H_EXTRA_HORAS', ascending=False)
+    
+    return overtime_tech_data
+
+def get_weekly_technician_hours(df, overtime_data):
+    """Obtiene datos semanales de horas por técnico combinando datos normales y extras"""
     if df.empty or 'FECHA_DE_INICIO' not in df.columns or 'RESPONSABLE' not in df.columns:
         return pd.DataFrame()
     
@@ -942,31 +1105,76 @@ def get_weekly_technician_hours(df):
         axis=1
     )
     
-    weekly_tech_data = df_weekly.groupby(['SEMANA_STR', 'AÑO', 'SEMANA', 'RESPONSABLE']).agg({
-        'TR_MIN': 'sum',
-        'H_EXTRA_MIN': 'sum'
-    }).reset_index()
+    # Asegurar que RESPONSABLE y SEMANA_STR sean string
+    df_weekly['RESPONSABLE'] = df_weekly['RESPONSABLE'].astype(str).str.strip()
+    df_weekly['SEMANA_STR'] = df_weekly['SEMANA_STR'].astype(str)
     
-    weekly_tech_data['TR_HORAS'] = weekly_tech_data['TR_MIN'] / 60
-    weekly_tech_data['H_EXTRA_HORAS'] = weekly_tech_data['H_EXTRA_MIN'] / 60
+    # Horas normales por técnico y semana
+    weekly_normal_hours = df_weekly.groupby(['SEMANA_STR', 'AÑO', 'SEMANA', 'RESPONSABLE']).agg({
+        'TR_MIN': 'sum'
+    }).reset_index()
+    weekly_normal_hours['TR_HORAS'] = weekly_normal_hours['TR_MIN'] / 60
+    
+    # Horas extras por técnico y semana (de DETALLE_HE)
+    weekly_overtime_hours = get_weekly_overtime_data(overtime_data)
+    
+    # Asegurar que en weekly_overtime_hours también sean string
+    if not weekly_overtime_hours.empty:
+        weekly_overtime_hours['RESPONSABLE'] = weekly_overtime_hours['RESPONSABLE'].astype(str).str.strip()
+        weekly_overtime_hours['SEMANA_STR'] = weekly_overtime_hours['SEMANA_STR'].astype(str)
+    
+    # Combinar datos normales y extras
+    if not weekly_overtime_hours.empty:
+        weekly_tech_data = pd.merge(
+            weekly_normal_hours,
+            weekly_overtime_hours[['SEMANA_STR', 'RESPONSABLE', 'H_EXTRA_MIN', 'H_EXTRA_HORAS']],
+            on=['SEMANA_STR', 'RESPONSABLE'],
+            how='outer'
+        ).fillna(0)
+    else:
+        weekly_tech_data = weekly_normal_hours.copy()
+        weekly_tech_data['H_EXTRA_MIN'] = 0
+        weekly_tech_data['H_EXTRA_HORAS'] = 0
     
     weekly_tech_data['SEMANA_NUM'] = weekly_tech_data['AÑO'] * 100 + weekly_tech_data['SEMANA']
     weekly_tech_data = weekly_tech_data.sort_values('SEMANA_NUM')
     
     return weekly_tech_data
 
-def get_accumulated_technician_hours(df):
+def get_accumulated_technician_hours(df, overtime_data):
+    """Obtiene datos acumulados de horas por técnico combinando datos normales y extras"""
     if df.empty or 'RESPONSABLE' not in df.columns:
         return pd.DataFrame()
     
     df_separado = separar_tecnicos(df)
-    tech_data = df_separado.groupby('RESPONSABLE').agg({
-        'TR_MIN': 'sum',
-        'H_EXTRA_MIN': 'sum'
-    }).reset_index()
     
-    tech_data['TR_HORAS'] = tech_data['TR_MIN'] / 60
-    tech_data['H_EXTRA_HORAS'] = tech_data['H_EXTRA_MIN'] / 60
+    # Horas normales acumuladas
+    normal_tech_data = df_separado.groupby('RESPONSABLE').agg({
+        'TR_MIN': 'sum'
+    }).reset_index()
+    normal_tech_data['TR_HORAS'] = normal_tech_data['TR_MIN'] / 60
+    
+    # Horas extras acumuladas (de DETALLE_HE)
+    overtime_tech_data = get_accumulated_overtime_data(overtime_data)
+    
+    # Asegurar que ambas columnas sean string para el merge
+    normal_tech_data['RESPONSABLE'] = normal_tech_data['RESPONSABLE'].astype(str).str.strip()
+    
+    # Combinar datos normales y extras
+    if not overtime_tech_data.empty:
+        overtime_tech_data['RESPONSABLE'] = overtime_tech_data['RESPONSABLE'].astype(str).str.strip()
+        tech_data = pd.merge(
+            normal_tech_data,
+            overtime_tech_data[['RESPONSABLE', 'H_EXTRA_MIN', 'H_EXTRA_HORAS', 'SALDO_HORAS_EXTRAS']],
+            on='RESPONSABLE',
+            how='outer'
+        ).fillna(0)
+    else:
+        tech_data = normal_tech_data.copy()
+        tech_data['H_EXTRA_MIN'] = 0
+        tech_data['H_EXTRA_HORAS'] = 0
+        tech_data['SALDO_HORAS_EXTRAS'] = 0
+    
     tech_data = tech_data.sort_values('TR_HORAS', ascending=False)
     
     return tech_data
@@ -1290,6 +1498,35 @@ def apply_filters(df, equipo_filter, conjunto_filter, ubicacion_filter, tipo_mtt
     
     return filtered_df
 
+def apply_overtime_filters(overtime_df, fecha_inicio, fecha_fin):
+    """Aplica filtros a los datos de horas extras"""
+    if overtime_df.empty:
+        return overtime_df
+    
+    filtered_overtime = overtime_df.copy()
+    
+    # Filtrar por rango de fechas
+    if fecha_inicio is not None and fecha_fin is not None:
+        # Convertir a datetime para incluir hora
+        inicio_datetime = datetime.combine(fecha_inicio, datetime.min.time())
+        fin_datetime = datetime.combine(fecha_fin, datetime.max.time())
+        
+        # Asegurarse de que las columnas de fecha sean datetime
+        if 'INICIO_HORAS_EXTRAS' in filtered_overtime.columns:
+            # Si no es datetime, convertir
+            if not pd.api.types.is_datetime64_any_dtype(filtered_overtime['INICIO_HORAS_EXTRAS']):
+                filtered_overtime['INICIO_HORAS_EXTRAS'] = pd.to_datetime(
+                    filtered_overtime['INICIO_HORAS_EXTRAS'], errors='coerce'
+                )
+            
+            # Aplicar filtro
+            filtered_overtime = filtered_overtime[
+                (filtered_overtime['INICIO_HORAS_EXTRAS'] >= inicio_datetime) &
+                (filtered_overtime['INICIO_HORAS_EXTRAS'] <= fin_datetime)
+            ]
+    
+    return filtered_overtime
+
 def get_current_datetime_spanish():
     now = datetime.now()
     months = [
@@ -1315,6 +1552,130 @@ def format_date_dd_mm_aaaa(date):
         return str(date)
 
 # ============================================
+# NUEVA FUNCIÓN: Generar reporte de horas extras en Excel
+# ============================================
+
+def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
+    """Genera un archivo Excel con el reporte de horas extras"""
+    if overtime_data.empty:
+        return None
+    
+    # Crear un DataFrame con los datos para el reporte
+    report_df = overtime_data.copy()
+
+    # FORMATO ESPECIAL PARA COLUMNA OT - ENTEROS SIN DECIMALES
+    if 'OT' in report_df.columns:
+        def format_ot_for_excel(ot_value):
+            if pd.isna(ot_value) or ot_value == '':
+                return ''
+            
+            ot_str = str(ot_value).strip()
+            
+            # Remover .0 al final si existe
+            if ot_str.endswith('.0'):
+                return ot_str[:-2]
+            
+            # Si tiene punto decimal, intentar convertir a entero
+            if '.' in ot_str:
+                try:
+                    num = float(ot_str)
+                    if num.is_integer():
+                        return str(int(num))
+                    else:
+                        # Mantener con 2 decimales si tiene decimales reales
+                        return f"{num:.2f}"
+                except:
+                    return ot_str
+            
+            return ot_str
+        
+        report_df['OT'] = report_df['OT'].apply(format_ot_for_excel)
+    
+    
+    # Seleccionar y ordenar columnas
+    columns_to_include = ['RESPONSABLE', 'OT', 'INICIO_HORAS_EXTRAS', 'FIN_HORAS_EXTRAS', 
+                         'HORAS_EXTRAS', 'H_EXTRA_MIN', 'SALDO_HORAS_EXTRAS']
+    
+    # Filtrar columnas que existen
+    existing_columns = [col for col in columns_to_include if col in report_df.columns]
+    report_df = report_df[existing_columns]
+    
+    # Renombrar columnas para mejor comprensión
+    column_names = {
+        'RESPONSABLE': 'Técnico',
+        'OT': 'N° OT',
+        'INICIO_HORAS_EXTRAS': 'Fecha/Hora Inicio',
+        'FIN_HORAS_EXTRAS': 'Fecha/Hora Fin',
+        'HORAS_EXTRAS': 'Horas Extras (horas)',
+        'H_EXTRA_MIN': 'Horas Extras (minutos)',
+        'SALDO_HORAS_EXTRAS': 'Valor en Dólares'
+    }
+    
+    report_df = report_df.rename(columns=column_names)
+    
+    # Formatear fechas
+    if 'Fecha/Hora Inicio' in report_df.columns:
+        report_df['Fecha/Hora Inicio'] = report_df['Fecha/Hora Inicio'].dt.strftime('%d/%m/%Y %H:%M:%S')
+    
+    if 'Fecha/Hora Fin' in report_df.columns:
+        report_df['Fecha/Hora Fin'] = report_df['Fecha/Hora Fin'].dt.strftime('%d/%m/%Y %H:%M:%S')
+    
+    # Crear un writer de Excel
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # Escribir datos principales
+        report_df.to_excel(writer, sheet_name='Horas Extras', index=False)
+        
+        # Crear hoja de resumen
+        summary_data = []
+        
+        # Resumen por técnico
+        if 'Técnico' in report_df.columns and 'Horas Extras (horas)' in report_df.columns and 'Valor en Dólares' in report_df.columns:
+            tech_summary = report_df.groupby('Técnico').agg({
+                'Horas Extras (horas)': 'sum',
+                'Valor en Dólares': 'sum'
+            }).reset_index()
+            tech_summary = tech_summary.sort_values('Valor en Dólares', ascending=False)
+            
+            for _, row in tech_summary.iterrows():
+                summary_data.append({
+                    'Técnico': row['Técnico'],
+                    'Horas Extras (horas)': row['Horas Extras (horas)'],
+                    'Costo Total ($)': row['Valor en Dólares']
+                })
+        
+        # Totales generales
+        total_horas = report_df['Horas Extras (horas)'].sum() if 'Horas Extras (horas)' in report_df.columns else 0
+        total_costo = report_df['Valor en Dólares'].sum() if 'Valor en Dólares' in report_df.columns else 0
+        
+        summary_data.append({
+            'Técnico': 'TOTAL GENERAL',
+            'Horas Extras (horas)': total_horas,
+            'Costo Total ($)': total_costo
+        })
+        
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_excel(writer, sheet_name='Resumen', index=False)
+        
+        # Ajustar ancho de columnas
+        for sheet in writer.sheets:
+            worksheet = writer.sheets[sheet]
+            for column in worksheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 30)
+                worksheet.column_dimensions[column_letter].width = adjusted_width
+    
+    processed_data = output.getvalue()
+    return processed_data
+
+# ============================================
 # INTERFAZ PRINCIPAL
 # ============================================
 
@@ -1331,6 +1692,9 @@ def main():
     
     if 'personal_data' not in st.session_state:
         st.session_state.personal_data = pd.DataFrame()
+    
+    if 'overtime_data' not in st.session_state:
+        st.session_state.overtime_data = pd.DataFrame()
     
     if 'last_update' not in st.session_state:
         st.session_state.last_update = None
@@ -1368,6 +1732,22 @@ def main():
 
         time.sleep(1)
         status_personal.empty()
+    
+    # CARGA DE DATOS DE HORAS EXTRAS
+    status_overtime = st.empty()
+    if st.session_state.overtime_data.empty:
+        with status_overtime.container():
+            with st.spinner("Cargando datos de horas extras..."):
+                overtime_df = load_overtime_data_from_google_sheets()
+
+                if not overtime_df.empty:
+                    st.session_state.overtime_data = overtime_df
+                    st.success("✅ Datos de horas extras cargados correctamente")
+                else:
+                    st.warning("⚠️ No se pudieron cargar los datos de horas extras")
+
+        time.sleep(1)
+        status_overtime.empty()
     
     # Sidebar
     st.sidebar.title("Opciones")
@@ -1459,9 +1839,17 @@ def main():
         filtered_data = apply_filters(st.session_state.data, equipo_filter, conjunto_filter, 
                                       ubicacion_filter, tipo_mtto_filter, fecha_inicio, fecha_fin)
         
+        # Aplicar filtros a datos de horas extras
+        filtered_overtime = apply_overtime_filters(st.session_state.overtime_data, fecha_inicio, fecha_fin)
+        
+        # Aplicar limpieza a las columnas RESPONSABLE antes de procesar
+        filtered_data = clean_responsable_column(filtered_data)
+        filtered_overtime = clean_responsable_column(filtered_overtime)
+        
         # Mostrar información de estado
         st.sidebar.subheader("Estado")
         st.sidebar.write(f"**Registros filtrados:** {len(filtered_data)}")
+        st.sidebar.write(f"**Horas extras registros:** {len(filtered_overtime)}")
         st.sidebar.write(f"**Equipos únicos:** {len(filtered_data['EQUIPO'].unique())}")
         if not filtered_data.empty and 'FECHA_DE_INICIO' in filtered_data.columns:
             min_date_filtered = filtered_data['FECHA_DE_INICIO'].min()
@@ -1486,14 +1874,14 @@ def main():
         </style>
         """, unsafe_allow_html=True)
         
-        # Pestañas
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+        # Pestañas - AGREGADA PESTAÑA PARA REPORTE DE HORAS EXTRAS
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
             "Planta", "TFS", "TR", "TFC", "Tipo de Mtto", "Confiabilidad", 
-            "Horas Personal Técnico", "Costos Horas Extras Personal Técnico", "Cumplimiento del Plan"
+            "Horas Personal Técnico", "Costos Horas Extras Personal Técnico", "Cumplimiento del Plan", "Reporte Horas Extras"
         ])
         
         # Calcular métricas con tiempo disponible dinámico
-        metrics = calculate_metrics(filtered_data, fecha_inicio, fecha_fin)
+        metrics = calculate_metrics(filtered_data, fecha_inicio, fecha_fin, filtered_overtime)
         weekly_data = get_weekly_data(filtered_data, fecha_inicio, fecha_fin)
         
         # Calcular métricas de confiabilidad con tiempo disponible dinámico
@@ -1501,9 +1889,9 @@ def main():
         
         # Obtener otros datos
         weekly_emergency_data = get_weekly_emergency_data(filtered_data)
-        weekly_tech_data = get_weekly_technician_hours(filtered_data)
-        accumulated_tech_data = get_accumulated_technician_hours(filtered_data)
-        weekly_costs, accumulated_costs, mensaje_calculo = calculate_overtime_costs(filtered_data, st.session_state.personal_data)
+        weekly_tech_data = get_weekly_technician_hours(filtered_data, filtered_overtime)
+        accumulated_tech_data = get_accumulated_technician_hours(filtered_data, filtered_overtime)
+        weekly_costs, accumulated_costs, mensaje_calculo = calculate_overtime_costs_from_details(filtered_overtime, st.session_state.personal_data)
         monthly_plan_data = get_monthly_plan_data(st.session_state.data, year=2026)
         total_planificadas_mes_actual = get_total_planificadas_mes_actual(st.session_state.data, year=2026)
         ordenes_mes_actual = get_ordenes_mes_actual(st.session_state.data)
@@ -1683,7 +2071,9 @@ def main():
                 with col3:
                     st.metric("TFS Total", f"{metrics.get('tfs', 0):,.0f}", "minutos")
                 with col4:
-                    st.metric("Horas Extras Acum", f"{metrics.get('horas_extras_acumuladas', 0)/60:,.1f}", "horas")
+                    # Horas extras ahora desde DETALLE_HE
+                    horas_extras = metrics.get('horas_extras_acumuladas', 0)
+                    st.metric("Horas Extras Acum", f"{horas_extras/60:,.1f}", "horas")
                 
                 # =============================================
                 # SECCIÓN 3: GRÁFICOS DE DISPONIBILIDAD Y TFS
@@ -1836,7 +2226,7 @@ def main():
                             st.plotly_chart(fig, use_container_width=True)
                 
                 with col4:
-                    # Costos de Horas Extras por Técnico (Top 5)
+                    # Costos de Horas Extras por Técnico (Top 5) - AHORA DESDE DETALLE_HE
                     if not accumulated_costs.empty and 'COSTO_TOTAL' in accumulated_costs.columns:
                         top_tecnicos = accumulated_costs.nlargest(5, 'COSTO_TOTAL')
                         if not top_tecnicos.empty:
@@ -1923,7 +2313,7 @@ def main():
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
         # Las otras pestañas (2-9) mantienen exactamente la misma estructura y funcionalidad
-        # Solo se han actualizado las funciones de cálculo que dependen del tiempo disponible
+        # Solo se han actualizado las funciones de cálculo que dependen de las horas extras
 
         # Pestaña TFS - COMPLETA CON UBICACIÓN TÉCNICA
         with tab2:
@@ -2020,6 +2410,7 @@ def main():
                         st.info("No hay datos de ubicación técnica")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
+        
         # Pestaña TR - COMPLETA CON UBICACIÓN TÉCNICA
         with tab3:
             st.header("Análisis de TR")
@@ -2115,6 +2506,7 @@ def main():
                         st.info("No hay datos de ubicación técnica")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
+        
         # Pestaña TFC - COMPLETA CON UBICACIÓN TÉCNICA
         with tab4:
             st.header("Análisis de TFC")
@@ -2210,6 +2602,7 @@ def main():
                         st.info("No hay datos de ubicación técnica")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
+        
         # Pestaña Tipo de Mantenimiento - CORREGIDA CON VALIDACIONES ROBUSTAS
         with tab5:
             st.header("Análisis por Tipo de Mantenimiento")
@@ -2229,7 +2622,7 @@ def main():
                     filtered_data_mtto = filtered_data
                 
                 # CORRECCIÓN: Pasar los parámetros fecha_inicio y fecha_fin a la función calculate_metrics
-                metrics_mtto = calculate_metrics(filtered_data_mtto, fecha_inicio, fecha_fin)
+                metrics_mtto = calculate_metrics(filtered_data_mtto, fecha_inicio, fecha_fin, filtered_overtime)
                 
                 # Mostrar métricas
                 col1, col2, col3, col4, col5 = st.columns(5)
@@ -2407,6 +2800,7 @@ def main():
                         st.warning("Faltan columnas necesarias para el gráfico de treemap (TIPO DE MTTO, TR_MIN)")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")        
+        
         # Pestaña Confiabilidad - MODIFICADA con columnas específicas
         with tab6:
             st.header("Indicadores de Confiabilidad")
@@ -2526,8 +2920,9 @@ def main():
                     st.info("No hay registros de correctivos de emergencia en el período seleccionado")
                 
             else:
-                st.info("No hay datos para mostrar con los filtros seleccionados")
-         # Pestaña Horas Personal Técnico - MODIFICADA PARA MANEJAR MÚLTIPLES TÉCNICOS
+                st.info("No hay datos para mostrar con los filtros seleccionado")
+        
+        # Pestaña Horas Personal Técnico - MODIFICADA PARA USAR DATOS DE HORAS EXTRAS DESDE DETALLE_HE
         with tab7:
             st.header("👷 Análisis de Horas del Personal Técnico")
             
@@ -2607,22 +3002,22 @@ def main():
                                 else:
                                     st.info("No hay datos de horas normales acumuladas para mostrar.")
                             
-                            # --- SECCIÓN 2: HORAS EXTRAS (H_EXTRA_MIN) ---
-                            st.subheader("⏰ Horas Extras por Técnico")
+                            # --- SECCIÓN 2: HORAS EXTRAS (H_EXTRA_MIN) DESDE DETALLE_HE ---
+                            st.subheader("⏰ Horas Extras por Técnico (desde DETALLE_HE)")
                             
-                            # Filtrar datos con responsable y que tengan horas extras
-                            weekly_tech_extras = weekly_tech_data[weekly_tech_data['H_EXTRA_HORAS'] > 0]
+                            # Obtener datos semanales de horas extras desde DETALLE_HE
+                            weekly_overtime = get_weekly_overtime_data(filtered_overtime)
                             
-                            if not weekly_tech_extras.empty:
+                            if not weekly_overtime.empty:
                                 # Usar la misma paleta de colores que en la sección anterior
                                 # Gráfico 3: Barras apiladas semanales de horas extras
                                 col1, col2 = st.columns(2)
                                 
                                 with col1:
                                     # Ordenar semanas
-                                    semanas_ordenadas = sorted(weekly_tech_extras['SEMANA_STR'].unique())
+                                    semanas_ordenadas = sorted(weekly_overtime['SEMANA_STR'].unique())
                                     
-                                    fig = px.bar(weekly_tech_extras, 
+                                    fig = px.bar(weekly_overtime, 
                                                 x='SEMANA_STR', 
                                                 y='H_EXTRA_HORAS',
                                                 color='RESPONSABLE',
@@ -2635,33 +3030,36 @@ def main():
                                 
                                 with col2:
                                     # Gráfico de torta: Horas extras acumuladas por técnico
-                                    horas_extras_acumuladas = data_with_responsible_separado.groupby('RESPONSABLE')['H_EXTRA_MIN'].sum().reset_index()
-                                    horas_extras_acumuladas['H_EXTRA_HORAS'] = horas_extras_acumuladas['H_EXTRA_MIN'] / 60
-                                    horas_extras_acumuladas = horas_extras_acumuladas[horas_extras_acumuladas['H_EXTRA_HORAS'] > 0]
-                                    horas_extras_acumuladas = horas_extras_acumuladas.sort_values('H_EXTRA_HORAS', ascending=False)
+                                    horas_extras_acumuladas = get_accumulated_overtime_data(filtered_overtime)
                                     
-                                    if not horas_extras_acumuladas.empty:
-                                        # Formatear etiquetas para mostrar técnico y horas
-                                        horas_extras_acumuladas['LABEL'] = horas_extras_acumuladas.apply(
-                                            lambda x: f"{x['RESPONSABLE']}: {x['H_EXTRA_HORAS']:.1f} horas", axis=1
-                                        )
+                                    if not horas_extras_acumuladas.empty and 'H_EXTRA_HORAS' in horas_extras_acumuladas.columns:
+                                        horas_extras_acumuladas = horas_extras_acumuladas[horas_extras_acumuladas['H_EXTRA_HORAS'] > 0]
+                                        horas_extras_acumuladas = horas_extras_acumuladas.sort_values('H_EXTRA_HORAS', ascending=False)
                                         
-                                        fig = px.pie(horas_extras_acumuladas, 
-                                                    values='H_EXTRA_HORAS', 
-                                                    names='LABEL',
-                                                    title='Distribución de Horas Extras Acumuladas',
-                                                    color='RESPONSABLE',
-                                                    color_discrete_map=colores_tecnicos)
-                                        
-                                        # Actualizar el hovertemplate para mostrar información adicional
-                                        fig.update_traces(
-                                            textposition='inside', 
-                                            textinfo='percent+label',
-                                            hovertemplate='<b>%{label}</b><br>' +
-                                                        'Horas Extras: %{value:.1f}<br>' +
-                                                        'Porcentaje: %{percent}<extra></extra>'
-                                        )
-                                        st.plotly_chart(fig, use_container_width=True)
+                                        if not horas_extras_acumuladas.empty:
+                                            # Formatear etiquetas para mostrar técnico y horas
+                                            horas_extras_acumuladas['LABEL'] = horas_extras_acumuladas.apply(
+                                                lambda x: f"{x['RESPONSABLE']}: {x['H_EXTRA_HORAS']:.1f} horas", axis=1
+                                            )
+                                            
+                                            fig = px.pie(horas_extras_acumuladas, 
+                                                        values='H_EXTRA_HORAS', 
+                                                        names='LABEL',
+                                                        title='Distribución de Horas Extras Acumuladas',
+                                                        color='RESPONSABLE',
+                                                        color_discrete_map=colores_tecnicos)
+                                            
+                                            # Actualizar el hovertemplate para mostrar información adicional
+                                            fig.update_traces(
+                                                textposition='inside', 
+                                                textinfo='percent+label',
+                                                hovertemplate='<b>%{label}</b><br>' +
+                                                            'Horas Extras: %{value:.1f}<br>' +
+                                                            'Porcentaje: %{percent}<extra></extra>'
+                                            )
+                                            st.plotly_chart(fig, use_container_width=True)
+                                        else:
+                                            st.info("No hay datos de horas extras acumuladas para mostrar.")
                                     else:
                                         st.info("No hay datos de horas extras acumuladas para mostrar.")
                             else:
@@ -2672,32 +3070,47 @@ def main():
                                 st.markdown("""
                                 ### 📊 **Modificación en el cálculo de horas por técnico**
                                 
-                                **Antes:** Si una orden tenía 2 técnicos y 60 minutos de trabajo, cada técnico recibía 30 minutos.
+                                **Fuente de datos de horas extras:** 
+                                - Las horas extras ahora se obtienen de la hoja 'DETALLE_HE' del Google Sheet
+                                - Campos utilizados: 'RESPONSABLE_N', 'HORAS EXTRAS', 'SALDO HORAS EXTRAS'
                                 
-                                **Ahora:** Si una orden tiene 2 técnicos y 60 minutos de trabajo, **cada técnico recibe 60 minutos**.
+                                ### **Estructura de datos DETALLE_HE:**
+                                1. **RESPONSABLE_N:** Técnico que generó las horas extras
+                                2. **OT_ID:** Número de orden de trabajo
+                                3. **INICIO_HORAS_EXTRAS:** Fecha y hora de inicio
+                                4. **FIN_HORAS_EXTRAS:** Fecha y hora de fin
+                                5. **HORAS EXTRAS:** Cantidad de horas extras (en horas)
+                                6. **SALDO HORAS EXTRAS:** Valor en dólares por las horas extras
                                 
-                                ### **Ejemplo:**
-                                - Orden con 2 técnicos (Juan y Pedro)
-                                - Duración: 60 minutos normales + 60 minutos extras
-                                - **Resultado:**
-                                  - Juan: 60 minutos normales + 60 minutos extras
-                                  - Pedro: 60 minutos normales + 60 minutos extras
+                                ### **Conversión:**
+                                - Horas extras se convierten de horas a minutos para consistencia
+                                - Fórmula: H_EXTRA_MIN = HORAS_EXTRAS × 60
                                 
-                                ### **Justificación:**
-                                Esta modificación refleja la realidad de que cada técnico trabaja el tiempo completo de la orden,
-                                independientemente de cuántos técnicos participen en el trabajo.
+                                ### **Filtros aplicados:**
+                                - Se aplican los mismos filtros de fecha que en los datos principales
+                                - Filtro por rango de fechas usando 'INICIO_HORAS_EXTRAS'
                                 """)
                         else:
                             st.info("No hay datos semanales por técnico para mostrar.")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados.")
-        # Pestaña Costos Horas Extras Personal Técnico - NUEVA PESTAÑA (YA INCLUYE SEPARACIÓN DE TÉCNICOS)
+        
+        # Pestaña Costos Horas Extras Personal Técnico - MODIFICADA PARA USAR DATOS DE DETALLE_HE
         with tab8:
-            st.header("💰 Costos de Horas Extras del Personal Técnico")
+            st.header("💰 Costos de Horas Extras del Personal Técnico (desde DETALLE_HE)")
             
-            if not filtered_data.empty:
+            # Mostrar información sobre la fuente de datos
+            st.info("""
+            **📋 Fuente de datos:** Los costos de horas extras se calculan a partir de la hoja 'DETALLE_HE' que contiene:
+            - Técnico (RESPONSABLE_N)
+            - Horas extras trabajadas (HORAS EXTRAS)
+            - Valor en dólares (SALDO HORAS EXTRAS)
+            - Fechas de inicio y fin de las horas extras
+            """)
+            
+            if not filtered_overtime.empty:
                 # Calcular costos (con la función mejorada)
-                weekly_costs, accumulated_costs, mensaje_calculo = calculate_overtime_costs(filtered_data, st.session_state.personal_data)
+                weekly_costs, accumulated_costs, mensaje_calculo = calculate_overtime_costs_from_details(filtered_overtime, st.session_state.personal_data)
                 
                 # Mostrar mensaje de estado
                 st.info(f"Estado del cálculo: {mensaje_calculo}")
@@ -2705,117 +3118,56 @@ def main():
                 if weekly_costs.empty or accumulated_costs.empty:
                     # Mostrar información de depuración
                     with st.expander("🔍 Depuración - Ver detalles de los datos", expanded=True):
-                        st.subheader("Registros con horas extras encontrados")
+                        st.subheader("Registros de horas extras encontrados en DETALLE_HE")
                         
-                        # Filtrar registros con horas extras
-                        registros_con_extras = filtered_data[filtered_data['H_EXTRA_MIN'] > 0]
-                        
-                        if not registros_con_extras.empty:
-                            st.write(f"**Total de registros con horas extras:** {len(registros_con_extras)}")
+                        if not filtered_overtime.empty:
+                            st.write(f"**Total de registros de horas extras:** {len(filtered_overtime)}")
                             
                             # Mostrar columnas relevantes
-                            columnas = ['FECHA_DE_INICIO', 'RESPONSABLE', 'H_EXTRA_MIN']
-                            if 'VALOR DE HORAS' in registros_con_extras.columns:
-                                columnas.append('VALOR DE HORAS')
+                            columnas = ['RESPONSABLE', 'OT', 'INICIO_HORAS_EXTRAS', 'HORAS_EXTRAS', 'SALDO_HORAS_EXTRAS']
+                            existing_columns = [col for col in columnas if col in filtered_overtime.columns]
                             
                             st.dataframe(
-                                registros_con_extras[columnas].head(20),
+                                filtered_overtime[existing_columns].head(20),
                                 use_container_width=True,
                                 column_config={
-                                    "H_EXTRA_MIN": st.column_config.NumberColumn(
-                                        "Minutos Extra",
-                                        help="Minutos de horas extras",
-                                        format="%d min"
+                                    "HORAS_EXTRAS": st.column_config.NumberColumn(
+                                        "Horas Extras",
+                                        help="Horas extras trabajadas",
+                                        format="%.2f horas"
+                                    ),
+                                    "SALDO_HORAS_EXTRAS": st.column_config.NumberColumn(
+                                        "Valor en Dólares",
+                                        help="Valor en dólares de las horas extras",
+                                        format="$%.2f"
                                     )
                                 }
                             )
                             
-                            # Mostrar cómo se separarían los técnicos
-                            st.subheader("Separación de técnicos (ejemplo)")
-                            ejemplo_separado = separar_tecnicos(registros_con_extras.head(5))
-                            if not ejemplo_separado.empty and len(ejemplo_separado) > 0:
-                                st.write("**Ejemplo de cómo se distribuirían las horas entre múltiples técnicos:**")
-                                st.markdown("""
-                                **NOTA:** Con la nueva modificación, cada técnico recibe las horas COMPLETAS de la orden.
-                                
-                                Ejemplo:
-                                - Orden original: 120 minutos extras, 2 técnicos (Juan y Pedro)
-                                - Resultado después de separar:
-                                  - Juan: 120 minutos extras
-                                  - Pedro: 120 minutos extras
-                                """)
-                                st.dataframe(ejemplo_separado[['FECHA_DE_INICIO', 'RESPONSABLE', 'H_EXTRA_MIN']], 
-                                           use_container_width=True)
-                            
                             # Mostrar resumen por técnico
                             st.subheader("Resumen por técnico")
-                            registros_separados = separar_tecnicos(registros_con_extras)
-                            resumen_tecnicos = registros_separados.groupby('RESPONSABLE').agg({
-                                'H_EXTRA_MIN': ['sum', 'count']
+                            resumen_tecnicos = filtered_overtime.groupby('RESPONSABLE').agg({
+                                'HORAS_EXTRAS': ['sum', 'count'],
+                                'SALDO_HORAS_EXTRAS': 'sum'
                             }).reset_index()
-                            resumen_tecnicos.columns = ['Técnico', 'Total Minutos', 'N° Registros']
-                            resumen_tecnicos['Total Horas'] = resumen_tecnicos['Total Minutos'] / 60
+                            resumen_tecnicos.columns = ['Técnico', 'Total Horas', 'N° Registros', 'Total Dólares']
                             st.dataframe(resumen_tecnicos, use_container_width=True)
                         else:
-                            st.warning("No se encontraron registros con H_EXTRA_MIN > 0")
-                        
-                        # Mostrar datos del personal
-                        if not st.session_state.personal_data.empty:
-                            st.subheader("Datos del personal cargados")
-                            st.write(f"**Registros en PERSONAL:** {len(st.session_state.personal_data)}")
-                            st.dataframe(st.session_state.personal_data.head(20), use_container_width=True)
-                            
-                            # Mostrar nombres de técnicos en PERSONAL
-                            st.subheader("Técnicos en hoja PERSONAL")
-                            # Buscar columna de nombres
-                            nombre_col = None
-                            for col in st.session_state.personal_data.columns:
-                                col_str = str(col).upper()
-                                if any(keyword in col_str for keyword in ['NOMBRE', 'TECNICO', 'RESPONSABLE']):
-                                    nombre_col = col
-                                    break
-                            
-                            if nombre_col:
-                                tecnicos_personal = st.session_state.personal_data[nombre_col].dropna().unique()
-                                st.write(f"**Columna de nombres:** {nombre_col}")
-                                st.write(f"**Técnicos encontrados:** {len(tecnicos_personal)}")
-                                for i, tecnico in enumerate(tecnicos_personal[:15]):
-                                    st.write(f"{i+1}. {tecnico}")
-                                if len(tecnicos_personal) > 15:
-                                    st.write(f"... y {len(tecnicos_personal) - 15} más")
-                            else:
-                                st.write("No se pudo identificar la columna de nombres")
-                            
-                            # Mostrar columnas de costos
-                            st.subheader("Columnas de costos encontradas")
-                            columnas_costos = []
-                            for col in st.session_state.personal_data.columns:
-                                if 'VALOR' in col.upper() and 'HORAS' in col.upper():
-                                    columnas_costos.append(col)
-                            
-                            if columnas_costos:
-                                st.write(f"**Columnas de costos:** {', '.join(columnas_costos)}")
-                            else:
-                                st.warning("No se encontraron columnas de costos (buscar 'VALOR' y 'HORAS' en el nombre)")
-                        else:
-                            st.warning("No se cargaron datos de la hoja PERSONAL")
+                            st.warning("No se encontraron registros en DETALLE_HE para el período seleccionado")
                     
                     st.markdown("""
                     ### 🔧 Posibles soluciones:
                     
-                    1. **Verificar nombres de técnicos:** 
-                       - Los nombres en 'RESPONSABLE' deben coincidir con los de la hoja PERSONAL
-                       - Revisa mayúsculas, tildes y espacios
+                    1. **Verificar datos en DETALLE_HE:** 
+                       - Asegúrate de que la hoja 'DETALLE_HE' tenga datos para el período seleccionado
+                       - Verifica que las fechas en 'INICIO_HORAS_EXTRAS' estén dentro del rango seleccionado
                     
-                    2. **Verificar estructura de la hoja PERSONAL:**
-                       - Debe contener columnas con los costos por hora
-                       - Busca columnas llamadas 'VALOR DE HORAS AL 50%' y 'VALOR DE HORAS AL 100%'
+                    2. **Verificar estructura de la hoja DETALLE_HE:**
+                       - Debe contener las columnas: RESPONSABLE_N, OT_ID, INICIO_HORAS_EXTRAS, HORAS EXTRAS, SALDO HORAS EXTRAS
+                       - Las fechas deben estar en formato correcto
                     
-                    3. **Verificar formato de horas extras:**
-                       - La columna 'h extra (min)' debe contener números mayores a 0
-                    
-                    4. **Verificar filtros aplicados:**
-                       - Asegúrate de que los filtros no estén excluyendo los registros con horas extras
+                    3. **Verificar filtros aplicados:**
+                       - Asegúrate de que los filtros de fecha no estén excluyendo los registros de horas extras
                     """)
                     
                 else:
@@ -2856,10 +3208,10 @@ def main():
                         # --- GRÁFICO 2: Evolución de horas extras por semana ---
                         fig = px.bar(weekly_costs, 
                                     x='SEMANA_STR', 
-                                    y='HORAS_EXTRA',
+                                    y='H_EXTRA_HORAS',
                                     color='TECNICO',
                                     title='Horas Extras por Semana',
-                                    labels={'SEMANA_STR': 'Semana', 'HORAS_EXTRA': 'Horas Extras', 'TECNICO': 'Técnico'},
+                                    labels={'SEMANA_STR': 'Semana', 'H_EXTRA_HORAS': 'Horas Extras', 'TECNICO': 'Técnico'},
                                     color_discrete_map=colores_tecnicos,
                                     category_orders={'SEMANA_STR': semanas_ordenadas})
                         fig.update_layout(barmode='stack')
@@ -2895,7 +3247,7 @@ def main():
                                         'Costo Total: $%{value:,.2f}<br>' +
                                         'Porcentaje: %{percent}<br>' +
                                         'Horas Extras: %{customdata[0]:,.1f}<extra></extra>',
-                            customdata=pie_data[['HORAS_EXTRA']].values
+                            customdata=pie_data[['H_EXTRA_HORAS']].values
                         )
                         st.plotly_chart(fig, use_container_width=True)
                     
@@ -2917,43 +3269,54 @@ def main():
                     # --- EXPLICACIÓN DEL CÁLCULO ---
                     with st.expander("ℹ️ Información sobre el cálculo de costos"):
                         st.markdown("""
-                        ### 📊 **Cálculo de Costos de Horas Extras**
+                        ### 📊 **Cálculo de Costos de Horas Extras desde DETALLE_HE**
                         
                         #### **Proceso de cálculo:**
-                        1. **Detección de horas extras:** Solo se consideran registros con `H_EXTRA_MIN > 0`
-                        2. **Conversión a horas:** Minutos ÷ 60
-                        3. **Asignación por técnico:** Cada técnico recibe las horas **COMPLETAS** de la orden
-                        4. **Obtención de costos:** Se obtienen de la hoja 'PERSONAL'
-                        5. **Tipos de hora extra:**
-                           - **50%:** Cantidad de horas extras × 'VALOR DE HORAS AL 50%'
-                           - **100%:** Cantidad de horas extras × 'VALOR DE HORAS AL 100%'
+                        1. **Fuente de datos:** Hoja 'DETALLE_HE' del Google Sheet
+                        2. **Campos utilizados:**
+                           - RESPONSABLE_N: Nombre del técnico
+                           - HORAS EXTRAS: Cantidad de horas extras trabajadas (en horas)
+                           - SALDO HORAS EXTRAS: Valor en dólares de las horas extras
+                           - INICIO_HORAS_EXTRAS: Fecha y hora de inicio para agrupar por semana
                         
-                        #### **Ejemplo según especificaciones:**
-                        - **Técnico:** PEREZ BAJAÑA JUAN JOSE
-                        - **Horas extras trabajadas:** 2 horas (50%)
-                        - **Costo por hora extra:** $3,44 (de la hoja 'PERSONAL')
-                        - **Costo total:** 2 horas × $3,44 = **$6,88**
+                        3. **Procesamiento:**
+                           - Conversión: Horas extras × 60 = minutos (para consistencia)
+                           - Agrupación por semana basada en INICIO_HORAS_EXTRAS
+                           - Suma de horas extras y valores en dólares por técnico y semana
                         
-                        #### **Modificación en asignación de horas:**
-                        **Antes:** Si una orden tenía 2 técnicos y 120 minutos extras, cada uno recibía 60 minutos.  
-                        **Ahora:** Si una orden tiene 2 técnicos y 120 minutos extras, **cada técnico recibe 120 minutos** (horas completas).
+                        4. **Cálculo de costos:**
+                           - **Costo total:** Suma directa de 'SALDO_HORAS_EXTRAS' por técnico
+                           - **Horas extras:** Suma directa de 'HORAS_EXTRAS' por técnico
+                           - **No se requiere hoja PERSONAL** ya que el valor ya está calculado en DETALLE_HE
                         
-                        #### **Estructura esperada en hoja 'PERSONAL':**
-                        1. Columna con nombres de técnicos (ej: 'APELLIDO Y NOMBRE')
-                        2. Columna con costo de horas al 50% (ej: 'VALOR DE HORAS AL 50%')
-                        3. Columna con costo de horas al 100% (ej: 'VALOR DE HORAS AL 100%')
+                        #### **Ejemplo de datos en DETALLE_HE:**
+                        | Técnico | HORAS EXTRAS | SALDO HORAS EXTRAS |
+                        |---------|--------------|-------------------|
+                        | Juan Pérez | 2.5 | $25.00 |
+                        | María García | 3.0 | $36.00 |
+                        
+                        #### **Ventajas de este enfoque:**
+                        - **Precisión:** Los valores en dólares ya están calculados en la fuente
+                        - **Transparencia:** Se puede verificar cada registro individualmente
+                        - **Simplificación:** No requiere cruce con datos de personal
+                        - **Actualización:** Los cambios en costos se reflejan directamente en DETALLE_HE
                         """)
                         
-            elif filtered_data.empty:
-                st.info("No hay datos filtrados para mostrar.")
-            else:
-                st.warning("No se pudieron cargar los datos del personal. La pestaña de costos no está disponible.")
-                st.info("""
-                Para habilitar la pestaña de costos, asegúrate de:
-                1. Tener acceso a la hoja 'PERSONAL' en el Google Sheet
-                2. Que la hoja 'PERSONAL' contenga las columnas necesarias
-                3. Que los datos del personal estén correctamente formateados
+            elif filtered_overtime.empty:
+                st.info("No hay datos de horas extras para el período seleccionado.")
+                st.markdown("""
+                ### 🔍 **Posibles causas:**
+                1. **No hay registros en DETALLE_HE** para el rango de fechas seleccionado
+                2. **Las fechas en INICIO_HORAS_EXTRAS** están fuera del rango seleccionado
+                3. **La hoja DETALLE_HE** no se cargó correctamente
+                
+                ### **Solución:**
+                - Verifica que la hoja 'DETALLE_HE' exista en el Google Sheet
+                - Asegúrate de que tenga datos para el período seleccionado
+                - Revisa que las fechas en 'INICIO_HORAS_EXTRAS' estén en formato correcto
                 """)
+            else:
+                st.warning("No se pudieron cargar los datos de horas extras. La pestaña de costos no está disponible.")
         
         # Pestaña Cumplimiento del Plan - VERSIÓN CORREGIDA CON OT COMO ENTERO Y SIN COLUMNA DE ÍNDICE
         with tab9:
@@ -2999,14 +3362,12 @@ def main():
             # Obtener datos de cumplimiento del plan para 2026 CON LA MEJORA DE FILTRO DE FECHA
             if not monthly_plan_data.empty:
                 # Calcular indicadores generales del plan
-                total_planificadas = monthly_plan_data['TOTAL_PLANIFICADAS'].sum()
-                total_culminadas = monthly_plan_data['ORDENES_CULMINADAS'].sum()
-                total_en_ejecucion = monthly_plan_data['ORDENES_EN_EJECUCION'].sum()
-                total_retrasadas = monthly_plan_data['ORDENES_RETRASADAS'].sum()
-                total_proyectadas = monthly_plan_data['ORDENES_PROYECTADAS'].sum() if 'ORDENES_PROYECTADAS' in monthly_plan_data.columns else 0
-                
+                total_planificadas = float(monthly_plan_data['TOTAL_PLANIFICADAS'].sum())
+                total_culminadas = float(monthly_plan_data['ORDENES_CULMINADAS'].sum())
+                total_en_ejecucion = float(monthly_plan_data['ORDENES_EN_EJECUCION'].sum())
+                total_retrasadas = float(monthly_plan_data['ORDENES_RETRASADAS'].sum())
                 # Verificar que la suma de categorías sea igual al total planificado
-                suma_categorias = total_culminadas + total_en_ejecucion + total_retrasadas + total_proyectadas
+                suma_categorias = total_culminadas + total_en_ejecucion + total_retrasadas 
                 
                 # Calcular porcentaje de cumplimiento
                 cumplimiento_general = (total_culminadas / total_planificadas * 100) if total_planificadas > 0 else 0
@@ -3065,7 +3426,7 @@ def main():
                     st.caption(estado_desc)
                 
                 # Información de verificación
-                if abs(suma_categorias - total_planificadas) > 0.1:  # Tolerancia pequeña para decimales
+                if abs(float(suma_categorias) - float(total_planificadas)) > 0.1:  # Tolerancia pequeña para decimales
                     st.warning(f"⚠️ **Nota:** La suma de categorías ({suma_categorias}) no coincide exactamente con el total planificado hasta ayer ({total_planificadas}). Esto puede deberse a órdenes con estados diferentes a los definidos.")
                 # Gráfico 1: Distribución mensual (CON 4 CATEGORÍAS)
                 st.subheader("📊 Distribución de Órdenes por Mes")
@@ -3075,18 +3436,7 @@ def main():
                 
                 # Barras apiladas con las nuevas definiciones (orden de apilamiento: de abajo hacia arriba)
                 # 1. Órdenes proyectadas (base) - solo si existen
-                if total_proyectadas > 0:
-                    fig1.add_trace(go.Bar(
-                        x=monthly_plan_data['MES_NOMBRE'],
-                        y=monthly_plan_data['ORDENES_PROYECTADAS'] if 'ORDENES_PROYECTADAS' in monthly_plan_data.columns else [0] * len(monthly_plan_data),
-                        name='Proyectadas',
-                        marker_color='#52b3f3',
-                        text=monthly_plan_data['ORDENES_PROYECTADAS'] if 'ORDENES_PROYECTADAS' in monthly_plan_data.columns else [0] * len(monthly_plan_data),
-                        textposition='inside',
-                        textfont=dict(size=15, color='black'),
-                        hovertemplate='<b>%{x}</b><br>Proyectadas: %{y}<extra></extra>'
-                    ))
-                
+            
                 # 2. Órdenes retrasadas
                 fig1.add_trace(go.Bar(
                     x=monthly_plan_data['MES_NOMBRE'],
@@ -3413,9 +3763,10 @@ def main():
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # Gráfico de torta para estado general (4 categorías)
+                # Gráfico de torta para estado general (4 categorías)
+
                     estado_labels = ['Culminadas', 'En Ejecución', 'Retrasadas', 'Proyectadas']
-                    estado_values = [total_culminadas, total_en_ejecucion, total_retrasadas, total_proyectadas]
+                    estado_values = [total_culminadas, total_en_ejecucion, total_retrasadas]
                     estado_colores = [
                         COLOR_PALETTE['estado_orden']['CULMINADAS'],
                         COLOR_PALETTE['estado_orden']['EN EJECUCIÓN'],
@@ -3423,11 +3774,12 @@ def main():
                         '#52b3f3'  # Azul para proyectadas
                     ]
                     
-                    # Filtrar solo categorías con valores > 0
+                    # Filtrar solo categorías con valores > 0 (VERSIÓN CORREGIDA)
                     datos_pie = []
-                    for i in range(len(estado_labels)):
-                        if estado_values[i] > 0:
-                            datos_pie.append((estado_labels[i], estado_values[i], estado_colores[i]))
+                    for i in range(len(estado_values)):  # Usar len(estado_values) en lugar de len(estado_labels)
+                        if i < len(estado_labels) and i < len(estado_colores):  # Verificar límites
+                            if estado_values[i] > 0:
+                                datos_pie.append((estado_labels[i], estado_values[i], estado_colores[i]))
                     
                     if datos_pie:
                         labels_pie = [d[0] for d in datos_pie]
@@ -3453,7 +3805,7 @@ def main():
                         st.plotly_chart(fig3, use_container_width=True)
                     else:
                         st.info("No hay datos para mostrar en el gráfico de torta")
-                
+            
                 with col2:
                     # Gráfico de barras para top meses con mejor cumplimiento
                     # Filtrar meses con órdenes planificadas
@@ -3586,6 +3938,255 @@ def main():
                 - Verifica que exista la columna 'STATUS' en los datos
                 - Considera que solo se evalúan órdenes con fecha hasta un día antes de hoy
                 """)
+        
+        # ============================================
+        # NUEVA PESTAÑA: Reporte de Horas Extras
+        # ============================================
+        with tab10:
+            st.header("📊 Reporte de Horas Extras")
+               
+            # Filtros específicos para el reporte de horas extras
+            st.subheader("🔍 Filtros para el Reporte")
+            
+            # Determinar el rango de fechas disponible
+            if not st.session_state.overtime_data.empty and 'INICIO_HORAS_EXTRAS' in st.session_state.overtime_data.columns:
+                # Obtener el rango de fechas de los datos
+                min_date_overtime = st.session_state.overtime_data['INICIO_HORAS_EXTRAS'].min().date()
+                max_date_overtime = st.session_state.overtime_data['INICIO_HORAS_EXTRAS'].max().date()
+            else:
+                # Si no hay datos, usar un rango por defecto
+                min_date_overtime = datetime(2026, 1, 1).date()
+                max_date_overtime = datetime(2026, 12, 31).date()
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                report_fecha_inicio = st.date_input(
+                    "Fecha de inicio para el reporte",
+                    value=min_date_overtime,
+                    min_value=min_date_overtime,
+                    max_value=max_date_overtime,
+                    key="report_fecha_inicio"
+                )
+            
+            with col2:
+                report_fecha_fin = st.date_input(
+                    "Fecha de fin para el reporte",
+                    value=max_date_overtime,
+                    min_value=min_date_overtime,
+                    max_value=max_date_overtime,
+                    key="report_fecha_fin"
+                )
+            
+            # Aplicar filtros automáticamente
+            filtered_overtime = apply_overtime_filters(
+                st.session_state.overtime_data, 
+                report_fecha_inicio, 
+                report_fecha_fin
+            )
+            
+            # Mostrar información del filtrado
+            st.info(f"Filtros aplicados automáticamente: {len(filtered_overtime)} registros encontrados entre {report_fecha_inicio} y {report_fecha_fin}")
+            
+            # Mostrar estadísticas del reporte
+            st.subheader("📈 Estadísticas del Reporte")
+            
+            if not filtered_overtime.empty:
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    total_registros = len(filtered_overtime)
+                    st.metric("Total Registros", f"{total_registros}")
+                
+                with col2:
+                    if 'HORAS_EXTRAS' in filtered_overtime.columns:
+                        total_horas = filtered_overtime['HORAS_EXTRAS'].sum()
+                        st.metric("Horas Extras Totales", f"{total_horas:.2f} horas")
+                    else:
+                        st.metric("Horas Extras Totales", "N/A")
+                
+                with col3:
+                    if 'SALDO_HORAS_EXTRAS' in filtered_overtime.columns:
+                        total_costo = filtered_overtime['SALDO_HORAS_EXTRAS'].sum()
+                        st.metric("Costo Total", f"${total_costo:,.2f}")
+                    else:
+                        st.metric("Costo Total", "N/A")
+                
+                with col4:
+                    if 'RESPONSABLE' in filtered_overtime.columns:
+                        tecnicos_unicos = filtered_overtime['RESPONSABLE'].nunique()
+                        st.metric("Técnicos Involucrados", f"{tecnicos_unicos}")
+                    else:
+                        st.metric("Técnicos Involucrados", "N/A")
+                
+                # Mostrar vista previa de los datos
+                st.subheader("👁️ Vista Previa de los Datos")
+                
+                # Seleccionar columnas para mostrar
+                preview_cols = ['RESPONSABLE', 'OT', 'INICIO_HORAS_EXTRAS', 
+                            'HORAS_EXTRAS', 'SALDO_HORAS_EXTRAS']
+
+                existing_cols = [col for col in preview_cols if col in filtered_overtime.columns]
+
+                if existing_cols:
+                    preview_df = filtered_overtime[existing_cols].copy()
+                    
+                    # FORMATO ESPECÍFICO PARA LA COLUMNA OT - ENTERO SIN DECIMALES
+                    if 'OT' in preview_df.columns:
+                        # Función para asegurar que OT sea entero
+                        def format_ot_as_int(ot_value):
+                            if pd.isna(ot_value) or ot_value == '':
+                                return ''
+                            
+                            # Convertir a string
+                            ot_str = str(ot_value).strip()
+                            
+                            # Remover espacios y caracteres especiales
+                            ot_str = ot_str.replace(' ', '')
+                            
+                            # Si ya es un número entero (sin punto), retornarlo
+                            if ot_str.replace('-', '', 1).isdigit():
+                                return ot_str
+                            
+                            # Si tiene punto decimal, convertirlo
+                            if '.' in ot_str:
+                                try:
+                                    # Intentar convertir a float
+                                    num = float(ot_str)
+                                    # Si es entero, quitar decimales
+                                    if num.is_integer():
+                                        return str(int(num))
+                                    else:
+                                        # Si tiene decimales reales, redondear a 2 decimales
+                                        return f"{num:.2f}"
+                                except:
+                                    return ot_str
+                            
+                            return ot_str
+                        
+                        # Aplicar el formato
+                        preview_df['OT'] = preview_df['OT'].apply(format_ot_as_int)
+                    
+                    # Formatear otras columnas
+                    if 'INICIO_HORAS_EXTRAS' in preview_df.columns:
+                        preview_df['INICIO_HORAS_EXTRAS'] = preview_df['INICIO_HORAS_EXTRAS'].dt.strftime('%d/%m/%Y %H:%M')
+                    
+                    if 'HORAS_EXTRAS' in preview_df.columns:
+                        preview_df['HORAS_EXTRAS'] = preview_df['HORAS_EXTRAS'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "0.00")
+                    
+                    if 'SALDO_HORAS_EXTRAS' in preview_df.columns:
+                        preview_df['SALDO_HORAS_EXTRAS'] = preview_df['SALDO_HORAS_EXTRAS'].apply(
+                            lambda x: f"${x:,.2f}" if pd.notnull(x) and x != 0 else "$0.00"
+                        )
+                    
+                    # Mostrar la tabla con formato específico para OT
+                    st.dataframe(
+                        preview_df.head(20),
+                        use_container_width=True,
+                        column_config={
+                            "OT": st.column_config.TextColumn(
+                                "N° OT",
+                                help="Número de orden de trabajo",
+                                width="small"
+                            ),
+                            "RESPONSABLE": st.column_config.TextColumn(
+                                "Técnico",
+                                width="medium"
+                            ),
+                            "INICIO_HORAS_EXTRAS": st.column_config.TextColumn(
+                                "Fecha/Hora Inicio",
+                                width="medium"
+                            ),
+                            "HORAS_EXTRAS": st.column_config.NumberColumn(
+                                "Horas Extras",
+                                format="%.2f horas"
+                            ),
+                            "SALDO_HORAS_EXTRAS": st.column_config.TextColumn(
+                                "Valor ($)",
+                                width="small"
+                            )
+                        }
+                    )
+                    # Mostrar más datos si hay muchos registros
+                    if len(preview_df) > 20:
+                        st.info(f"Mostrando 20 de {len(preview_df)} registros. El reporte completo se incluirá en el archivo Excel.")
+                
+                # Generar y descargar reporte en Excel
+                st.subheader("📥 Descargar Reporte en Excel")
+                
+                st.markdown("""
+                ### **Contenido del archivo Excel:**
+                1. **Hoja 'Horas Extras':** Registros detallados de horas extras
+                2. **Hoja 'Resumen':** Resumen por técnico con totales
+                
+                ### **Columnas incluidas:**
+                - Técnico
+                - N° OT
+                - Fecha/Hora Inicio
+                - Fecha/Hora Fin
+                - Horas Extras (horas)
+                - Horas Extras (minutos)
+                - Valor en Dólares
+                """)
+                
+                # Botón para generar y descargar el reporte
+                if st.button("⬇️ Generar y Descargar Reporte Excel", type="primary"):
+                    with st.spinner("Generando reporte en Excel..."):
+                        # Generar el reporte en Excel
+                        excel_data = generate_overtime_report_excel(
+                            filtered_overtime,
+                            report_fecha_inicio,
+                            report_fecha_fin
+                        )
+                        
+                        if excel_data:
+                            # Crear nombre de archivo con fecha
+                            fecha_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+                            filename = f"reporte_horas_extras_{fecha_str}.xlsx"
+                            
+                            # Botón de descarga
+                            st.download_button(
+                                label="💾 Descargar Archivo Excel",
+                                data=excel_data,
+                                file_name=filename,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                            
+                            st.success("✅ Reporte generado exitosamente. Haz clic en el botón de descarga.")
+                        else:
+                            st.error("❌ No se pudo generar el reporte. Verifica que haya datos disponibles.")
+            else:
+                st.warning("⚠️ No hay datos de horas extras para el período seleccionado.")
+                st.markdown("""
+                ### **Posibles soluciones:**
+                1. **Ajusta los filtros de fecha** para incluir un rango con datos
+                2. **Verifica que la hoja 'DETALLE_HE'** tenga datos
+                3. **Asegúrate de que las fechas** en 'INICIO_HORAS_EXTRAS' estén en formato correcto
+                """)
+            
+            # Información adicional
+            with st.expander("ℹ️ Información sobre los datos de horas extras"):
+                st.markdown("""
+                ### **Fuente de datos: Hoja 'DETALLE_HE'**
+                
+                #### **Estructura esperada:**
+                1. **RESPONSABLE_N:** Nombre del técnico que generó las horas extras
+                2. **OT_ID:** Número de orden de trabajo relacionada
+                3. **INICIO_HORAS_EXTRAS:** Fecha y hora de inicio de las horas extras
+                4. **FIN_HORAS_EXTRAS:** Fecha y hora de fin de las horas extras
+                5. **HORAS EXTRAS:** Cantidad de horas extras trabajadas (en horas)
+                6. **SALDO HORAS EXTRAS:** Valor en dólares de las horas extras
+                
+                #### **Procesamiento aplicado:**
+                - Conversión de horas a minutos: `H_EXTRA_MIN = HORAS_EXTRAS × 60`
+                - Filtrado por rango de fechas usando 'INICIO_HORAS_EXTRAS'
+                - Agrupación por técnico y semana para análisis
+                
+                #### **Notas importantes:**
+                - Los valores en dólares ya están calculados en la fuente
+                - No se requiere cruce con datos de personal para costos
+                - Cada registro representa un evento específico de horas extras
+                """)
     else:
         st.info("Por favor, carga datos para comenzar.")
         
@@ -3594,11 +4195,13 @@ def main():
         1. **Carga automática desde Google Sheets:**
         - Los datos se cargan automáticamente desde Google Sheets al abrir la aplicación
         
-        2. **MEJORA IMPLEMENTADA:**
+        2. **MEJORAS IMPLEMENTADAS:**
+        - **Fuente de horas extras:** Ahora se usa la hoja 'DETALLE_HE' en lugar de la columna 'h extra (min)' de 'DATAMTTO'
         - **Nuevo cálculo de tiempo disponible:** 
           - Se calcula únicamente basado en el número de días entre las fechas seleccionadas
           - Fórmula: Número de días × 24 horas × 60 minutos
           - Ejemplo: Para 27 días (2026-01-01 a 2026-01-27): 27 × 24 × 60 = 38,880 minutos
+        - **Nueva pestaña:** Reporte de horas extras con descarga en Excel
         
         3. **Actualización dinámica:**
         - El tiempo disponible se recalcula automáticamente al cambiar el rango de fechas
@@ -3606,8 +4209,8 @@ def main():
         
         4. **Mantenimiento del diseño:**
         - Todas las visualizaciones, pestañas y funcionalidades permanecen iguales
-        - Solo se modificó la lógica de cálculo del tiempo disponible
-        - La experiencia de usuario es idéntica pero con cálculos correctos
+        - Solo se modificó la lógica de cálculo de horas extras y tiempo disponible
+        - La experiencia de usuario es idéntica pero con cálculos correctos y nueva funcionalidad
         """)
 
 if __name__ == "__main__":
