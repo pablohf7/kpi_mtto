@@ -48,9 +48,6 @@ def verificar_login(email, password):
             return True, USUARIOS[email]
     return False, None
 
-# ---------------------------
-# NUEVO: Funciones para ENTER
-# ---------------------------
 def do_login():
     email = st.session_state.get("login_email", "").strip().lower()
     password = st.session_state.get("login_password", "")
@@ -166,7 +163,6 @@ def mostrar_info_usuario():
             st.session_state["autenticado"] = False
             st.rerun()
 
-# Paleta de colores específicos para tipos de mantenimiento
 COLOR_PALETTE = {
     'pastel': ['#AEC6CF', '#FFB3BA', '#FFDFBA', '#BAFFC9', '#BAE1FF', '#F0E6EF', '#C9C9FF', '#FFC9F0'],
     'tipo_mtto': {
@@ -185,10 +181,6 @@ COLOR_PALETTE = {
     }
 }
 
-# ============================================
-# NUEVO: Función para cargar datos de horas extras desde Google Sheets
-# ============================================
-
 @st.cache_data(ttl=300)
 def load_overtime_data_from_google_sheets():
     """Carga específicamente datos de DETALLE_HE (horas extras)"""
@@ -198,23 +190,12 @@ def load_overtime_data_from_google_sheets():
         
         st.info("📥 Cargando datos de HORAS EXTRAS desde hoja 'DETALLE_HE'...")
         
-        # Leer la hoja específica
         df = pd.read_excel(gsheet_url, sheet_name='DETALLE_HE')
         
         st.success(f"✅ Datos crudos de DETALLE_HE cargados: {len(df)} registros")
         
-        # Mostrar estructura específica de DETALLE_HE
-        st.info("📋 **Estructura de DETALLE_HE:**")
-        st.info("   - RESPONSABLE_N: Nombres de técnicos")
-        st.info("   - RESPONSABLE: Códigos ID de técnicos")
-        st.info("   - INICIO_HORAS_EXTRAS: Fecha de inicio")
-        st.info("   - HORAS EXTRAS: Cantidad de horas")
-        st.info("   - SALDO  HORAS EXTRAS: Valor en dólares")
-        
-        # Limpiar datos específicos para DETALLE_HE
         df_clean = clean_overtime_data(df)
         
-        # Mostrar estadísticas después de limpiar
         if not df_clean.empty:
             st.success(f"✅ Datos de horas extras procesados: {len(df_clean)} registros")
             
@@ -235,33 +216,25 @@ def load_overtime_data_from_google_sheets():
         st.error(f"❌ Error cargando DETALLE_HE: {e}")
         return pd.DataFrame()
 
-# Agregar esta función después de cargar los datos
 def verify_overtime_data(overtime_df):
-    """Verifica la integridad de los datos de horas extras"""
     if overtime_df.empty:
         return "❌ No hay datos cargados"
     
     issues = []
-    
-    # Verificar columnas requeridas
     required_cols = ['INICIO_HORAS_EXTRAS', 'RESPONSABLE', 'HORAS_EXTRAS', 'SALDO_HORAS_EXTRAS']
     missing_cols = [col for col in required_cols if col not in overtime_df.columns]
     
     if missing_cols:
         issues.append(f"Faltan columnas: {missing_cols}")
     
-    # Verificar fechas
     if 'INICIO_HORAS_EXTRAS' in overtime_df.columns:
-        # Verificar si es datetime
         if not pd.api.types.is_datetime64_any_dtype(overtime_df['INICIO_HORAS_EXTRAS']):
             issues.append("INICIO_HORAS_EXTRAS no es tipo datetime")
         else:
-            # Verificar valores nulos
             null_dates = overtime_df['INICIO_HORAS_EXTRAS'].isna().sum()
             if null_dates > 0:
                 issues.append(f"Hay {null_dates} fechas nulas en INICIO_HORAS_EXTRAS")
     
-    # Verificar datos
     if 'HORAS_EXTRAS' in overtime_df.columns:
         zero_hours = (overtime_df['HORAS_EXTRAS'] == 0).sum()
         if zero_hours == len(overtime_df):
@@ -271,83 +244,44 @@ def verify_overtime_data(overtime_df):
         return "⚠️ " + "; ".join(issues)
     else:
         return "✅ Datos OK"
-# ============================================
-# FUNCIÓN DE LIMPIEZA PARA COLUMNA RESPONSABLE
-# ============================================
 
 def clean_responsable_column(df):
-    """
-    Limpia la columna RESPONSABLE:
-    - Convierte a string
-    - Reemplaza NaN por vacío
-    - Elimina espacios en blanco
-    """
     if 'RESPONSABLE' in df.columns:
-        # Convertir a string y manejar NaN
         df['RESPONSABLE'] = df['RESPONSABLE'].astype(str)
         df['RESPONSABLE'] = df['RESPONSABLE'].replace('nan', '').replace('None', '')
         df['RESPONSABLE'] = df['RESPONSABLE'].str.strip()
     return df
 
-# Reemplaza la función clean_overtime_data con esta versión corregida:
 def clean_overtime_data(df):
-    """
-    Limpia datos específicamente de la hoja 'DETALLE_HE'
-    Aquí: RESPONSABLE = código ID, RESPONSABLE_N = nombre del técnico
-    """
     df_clean = df.copy()
-    
-    # Normalizar nombres de columnas
     df_clean.columns = [str(col).strip().upper() for col in df_clean.columns]
     
-    print(f"🔍 Columnas en DETALLE_HE después de normalizar: {df_clean.columns.tolist()}")
-    
-    # CRÍTICO: En DETALLE_HE, RESPONSABLE_N es el nombre, RESPONSABLE es el código ID
-    # Vamos a mantener RESPONSABLE_CODIGO para el código y RESPONSABLE para el nombre
-    
     if 'RESPONSABLE_N' in df_clean.columns:
-        # RESPONSABLE_N contiene el NOMBRE del técnico en DETALLE_HE
         df_clean['RESPONSABLE_NOMBRE'] = df_clean['RESPONSABLE_N'].astype(str).str.strip()
-        print(f"✅ Columna RESPONSABLE_NOMBRE creada desde RESPONSABLE_N")
     else:
         df_clean['RESPONSABLE_NOMBRE'] = ''
-        print(f"⚠️ RESPONSABLE_N no encontrado, columna RESPONSABLE_NOMBRE vacía")
     
     if 'RESPONSABLE' in df_clean.columns:
-        # RESPONSABLE contiene el CÓDIGO ID del técnico en DETALLE_HE
         df_clean['RESPONSABLE_CODIGO'] = df_clean['RESPONSABLE'].astype(str).str.strip()
-        print(f"✅ Columna RESPONSABLE_CODIGO creada desde RESPONSABLE")
     else:
         df_clean['RESPONSABLE_CODIGO'] = ''
-        print(f"⚠️ RESPONSABLE no encontrado, columna RESPONSABLE_CODIGO vacía")
     
-    # Para la aplicación, usaremos RESPONSABLE_NOMBRE como la columna principal
-    # Renombramos RESPONSABLE_NOMBRE a RESPONSABLE para consistencia con el resto de la app
     df_clean['RESPONSABLE'] = df_clean['RESPONSABLE_NOMBRE']
-    print(f"✅ Columna RESPONSABLE creada con nombres de técnicos (desde RESPONSABLE_N)")
     
-    # Manejar columnas de horas extras con espacios
     if 'HORAS EXTRAS' in df_clean.columns:
         df_clean = df_clean.rename(columns={'HORAS EXTRAS': 'HORAS_EXTRAS'})
-        print(f"✅ Renombrada 'HORAS EXTRAS' a 'HORAS_EXTRAS'")
     
     if 'SALDO  HORAS EXTRAS' in df_clean.columns:
         df_clean = df_clean.rename(columns={'SALDO  HORAS EXTRAS': 'SALDO_HORAS_EXTRAS'})
-        print(f"✅ Renombrada 'SALDO  HORAS EXTRAS' a 'SALDO_HORAS_EXTRAS'")
     
-    # Convertir fechas
     if 'INICIO_HORAS_EXTRAS' in df_clean.columns:
-        print(f"🕐 Convirtiendo INICIO_HORAS_EXTRAS a datetime...")
         try:
             df_clean['INICIO_HORAS_EXTRAS'] = pd.to_datetime(
                 df_clean['INICIO_HORAS_EXTRAS'], 
                 errors='coerce',
                 dayfirst=True
             )
-            valid_dates = df_clean['INICIO_HORAS_EXTRAS'].notna().sum()
-            print(f"✅ {valid_dates} de {len(df_clean)} fechas convertidas correctamente")
         except Exception as e:
-            print(f"❌ Error convirtiendo fechas: {e}")
             df_clean['INICIO_HORAS_EXTRAS'] = pd.NaT
     
     if 'FIN_HORAS_EXTRAS' in df_clean.columns:
@@ -357,91 +291,50 @@ def clean_overtime_data(df):
             dayfirst=True
         )
     
-    # Convertir horas extras a numérico
     if 'HORAS_EXTRAS' in df_clean.columns:
         df_clean['HORAS_EXTRAS'] = pd.to_numeric(df_clean['HORAS_EXTRAS'], errors='coerce').fillna(0)
         df_clean['H_EXTRA_MIN'] = df_clean['HORAS_EXTRAS'] * 60
-        print(f"✅ HORAS_EXTRAS convertida a numérico")
     
-    # Convertir saldo a numérico
     if 'SALDO_HORAS_EXTRAS' in df_clean.columns:
-        # Limpiar formato si es string
         if df_clean['SALDO_HORAS_EXTRAS'].dtype == 'object':
             df_clean['SALDO_HORAS_EXTRAS'] = df_clean['SALDO_HORAS_EXTRAS'].astype(str)
             df_clean['SALDO_HORAS_EXTRAS'] = df_clean['SALDO_HORAS_EXTRAS'].str.replace('[^\d\.\-]', '', regex=True)
-        
         df_clean['SALDO_HORAS_EXTRAS'] = pd.to_numeric(df_clean['SALDO_HORAS_EXTRAS'], errors='coerce').fillna(0)
-        print(f"✅ SALDO_HORAS_EXTRAS convertida a numérico")
     
-    # Mantener OT_ID como OT
     if 'OT_ID' in df_clean.columns:
         df_clean['OT'] = df_clean['OT_ID'].astype(str).str.strip()
-        print(f"✅ Columna OT creada desde OT_ID")
-    
-    # Estadísticas finales
-    print(f"📊 ESTADÍSTICAS FINALES DETALLE_HE:")
-    print(f"   - Total registros: {len(df_clean)}")
-    print(f"   - Técnicos únicos (nombres): {df_clean['RESPONSABLE'].nunique()}")
-    print(f"   - Técnicos únicos (códigos): {df_clean['RESPONSABLE_CODIGO'].nunique() if 'RESPONSABLE_CODIGO' in df_clean.columns else 0}")
-    print(f"   - Horas extras totales: {df_clean['HORAS_EXTRAS'].sum() if 'HORAS_EXTRAS' in df_clean.columns else 0}")
-    print(f"   - Saldo total: {df_clean['SALDO_HORAS_EXTRAS'].sum() if 'SALDO_HORAS_EXTRAS' in df_clean.columns else 0}")
     
     return df_clean
-# ============================================
-# FUNCIÓN SIMPLIFICADA: Calcular tiempo disponible basado en días
-# ============================================
 
 def calcular_tiempo_disponible(fecha_inicio, fecha_fin):
-    """Calcula el tiempo disponible basado en el número de días entre dos fechas"""
-    
-    # Calcular número de días (incluyendo ambos extremos)
     num_dias = (fecha_fin - fecha_inicio).days + 1
-    
-    # Calcular minutos totales (días × 24 horas × 60 minutos)
     tiempo_total = num_dias * 24 * 60
-    
     return tiempo_total, num_dias
 
-# ============================================
-# FUNCIÓN MODIFICADA: Calcular métricas con tiempo disponible dinámico
-# ============================================
-
 def calculate_metrics(df, fecha_inicio, fecha_fin, overtime_data=None):
-    """Calcula métricas usando tiempo disponible basado en días"""
     if df.empty:
         return {}
     
     m = {}
-    
-    # Tiempo Disponible - NUEVO CÁLCULO SIMPLIFICADO
     m['td'], m['num_dias'] = calcular_tiempo_disponible(fecha_inicio, fecha_fin)
     
-    # TFS, TR, TFC - solo para actividades que afectan producción
     prod_afectada_mask = df['PRODUCCION_AFECTADA'] == 'SI'
     m['tfs'] = df[prod_afectada_mask]['TFS_MIN'].sum() if 'TFS_MIN' in df.columns else 0
     m['tr'] = df[prod_afectada_mask]['TR_MIN'].sum() if 'TR_MIN' in df.columns else 0
     m['tfc'] = df[prod_afectada_mask]['TFC_MIN'].sum() if 'TFC_MIN' in df.columns else 0
     
-    # Tiempo Operativo
     m['to'] = max(m['td'] - m['tfs'], 0)
-    
-    # Disponibilidad e Indisponibilidad
     m['disponibilidad'] = (m['to'] / m['td']) * 100 if m['td'] > 0 else 0
     m['indisponibilidad'] = (m['tfs'] / m['td']) * 100 if m['td'] > 0 else 0
-    
-    # Total de fallas (actividades que afectan producción)
     m['total_fallas'] = len(df[prod_afectada_mask])
     
-    # MTBF, MTTF, MTTR
     m['mtbf'] = m['td'] / m['total_fallas'] if m['total_fallas'] > 0 else 0
     m['mttf'] = m['to'] / m['total_fallas'] if m['total_fallas'] > 0 else 0
     m['mttr'] = m['tr'] / m['total_fallas'] if m['total_fallas'] > 0 else 0
     
-    # Mantenibilidad
     landa = m['total_fallas'] / m['td'] if m['td'] > 0 else 0
     m['mantenibilidad'] = 1 - np.exp(-landa * m['td']) if landa > 0 else 0
     
-    # Porcentajes de tipos de mantenimiento
     tipo_mtto_totals = df.groupby('TIPO DE MTTO')['TR_MIN'].sum()
     total_mtto = tipo_mtto_totals.sum()
     
@@ -454,7 +347,6 @@ def calculate_metrics(df, fecha_inicio, fecha_fin, overtime_data=None):
     else:
         m['mp_pct'] = m['mbc_pct'] = m['mce_pct'] = m['mcp_pct'] = m['mms_pct'] = 0
     
-    # Horas extras acumuladas - AHORA DESDE DATOS DE HORAS EXTRAS
     if overtime_data is not None and not overtime_data.empty:
         m['horas_extras_acumuladas'] = overtime_data['H_EXTRA_MIN'].sum() if 'H_EXTRA_MIN' in overtime_data.columns else 0
     else:
@@ -462,16 +354,10 @@ def calculate_metrics(df, fecha_inicio, fecha_fin, overtime_data=None):
     
     return m
 
-# ============================================
-# FUNCIÓN MODIFICADA: Calcular métricas de confiabilidad
-# ============================================
-
 def calculate_reliability_metrics(df, fecha_inicio, fecha_fin):
-    """Calcula métricas de confiabilidad usando tiempo disponible basado en días"""
     if df.empty:
         return {}
     
-    # Filtrar solo correctivos de emergencia
     emergency_mask = df['TIPO DE MTTO'] == 'CORRECTIVO DE EMERGENCIA'
     df_emergency = df[emergency_mask].copy()
     
@@ -479,23 +365,18 @@ def calculate_reliability_metrics(df, fecha_inicio, fecha_fin):
         return {}
     
     m = {}
-    
-    # Tiempo Disponible - NUEVO CÁLCULO SIMPLIFICADO
     m['td'], m['num_dias'] = calcular_tiempo_disponible(fecha_inicio, fecha_fin)
     
-    # Calcular TR, TFC, TFS para correctivos de emergencia
     m['tr_emergency'] = df_emergency['TR_MIN'].sum() if 'TR_MIN' in df_emergency.columns else 0
     m['tfc_emergency'] = df_emergency['TFC_MIN'].sum() if 'TFC_MIN' in df_emergency.columns else 0
     m['tfs_emergency'] = df_emergency['TFS_MIN'].sum() if 'TFS_MIN' in df_emergency.columns else 0
     m['total_fallas_emergency'] = len(df_emergency)
     m['total_fallas_emergency_con_parada'] = len(df_emergency[df_emergency['PRODUCCION_AFECTADA'] == 'SI'])
     
-    # Calcular MTBF, MTTF, MTTR basados en correctivos de emergencia
     if m['total_fallas_emergency'] > 0:
         m['mtbf_emergency'] = m['td'] / m['total_fallas_emergency'] if m['td'] > 0 else 0
         m['mttr_emergency'] = m['tr_emergency'] / m['total_fallas_emergency'] if m['total_fallas_emergency'] > 0 else 0
         
-        # Tiempo Operativo basado en correctivos de emergencia que afectan producción
         emergency_prod_mask = (df_emergency['PRODUCCION_AFECTADA'] == 'SI')
         tfs_emergency_prod = df_emergency[emergency_prod_mask]['TFS_MIN'].sum() if 'TFS_MIN' in df_emergency.columns else 0
         to_emergency = max(m['td'] - tfs_emergency_prod, 0)
@@ -505,63 +386,35 @@ def calculate_reliability_metrics(df, fecha_inicio, fecha_fin):
         m['mttr_emergency'] = 0
         m['mttf_emergency'] = 0
     
-    # Mantenibilidad basada en correctivos de emergencia
     landa_emergency = m['total_fallas_emergency'] / m['td'] if m['td'] > 0 else 0
     m['mantenibilidad_emergency'] = 1 - np.exp(-landa_emergency * m['td']) if landa_emergency > 0 else 0
-    
-    # Mantenibilidad en porcentaje
     m['mantenibilidad_pct'] = m['mantenibilidad_emergency'] * 100
     
     return m
 
-# ============================================
-# FUNCIÓN MODIFICADA: Obtener datos semanales con tiempo disponible basado en días
-# ============================================
-
 def get_weekly_data(df, fecha_inicio, fecha_fin):
-    """Obtiene datos semanales con tiempo disponible calculado basado en días"""
     if df.empty or 'FECHA_DE_INICIO' not in df.columns:
         return pd.DataFrame()
     
-    # Crear copia para no modificar el original
     df_weekly = df.copy()
-    
-    # Obtener semana del año y año - USAR FECHA_DE_INICIO
     df_weekly['SEMANA'] = df_weekly['FECHA_DE_INICIO'].dt.isocalendar().week
     df_weekly['AÑO'] = df_weekly['FECHA_DE_INICIO'].dt.year
-    
-    # Crear SEMANA_STR con formato AÑO-SEMANA
     df_weekly['SEMANA_STR'] = df_weekly.apply(
-        lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", 
-        axis=1
+        lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", axis=1
     )
     
-    # Obtener tiempo disponible por semana basado en días
     tiempo_disponible_semanal = {}
-    
-    # Crear rango de fechas por semana
     current_date = fecha_inicio
     while current_date <= fecha_fin:
-        # Calcular fin de semana (7 días después)
         week_end = min(current_date + timedelta(days=6), fecha_fin)
-        
-        # Calcular días en esta semana
         days_in_week = (week_end - current_date).days + 1
-        
-        # Calcular minutos en esta semana
         minutos_semana = days_in_week * 24 * 60
-        
-        # Obtener semana del año
         semana_num = datetime.combine(current_date, datetime.min.time()).isocalendar().week
         año_num = current_date.year
         semana_str = f"{año_num}-S{semana_num:02d}"
-        
         tiempo_disponible_semanal[semana_str] = minutos_semana
-        
-        # Mover a la siguiente semana
         current_date = week_end + timedelta(days=1)
     
-    # Agrupar por semana - FILTRAR SOLO CUANDO AFECTA PRODUCCIÓN
     weekly_data = df_weekly[df_weekly['PRODUCCION_AFECTADA'] == 'SI'].groupby(['SEMANA_STR', 'AÑO', 'SEMANA']).agg({
         'TFS_MIN': 'sum',
         'TR_MIN': 'sum',
@@ -569,24 +422,14 @@ def get_weekly_data(df, fecha_inicio, fecha_fin):
         'PRODUCCION_AFECTADA': lambda x: (x == 'SI').sum()
     }).reset_index()
     
-    # Agregar tiempo disponible a cada semana
     weekly_data['TDISPONIBLE'] = weekly_data['SEMANA_STR'].map(tiempo_disponible_semanal).fillna(0)
-    
-    # Calcular disponibilidad semanal
     weekly_data['DISPO_SEMANAL'] = ((weekly_data['TDISPONIBLE'] - weekly_data['TFS_MIN']) / weekly_data['TDISPONIBLE']) * 100
-    
-    # Crear columna numérica para ordenar correctamente las semanas
     weekly_data['SEMANA_NUM'] = weekly_data['AÑO'] * 100 + weekly_data['SEMANA']
     weekly_data = weekly_data.sort_values('SEMANA_NUM')
     
     return weekly_data
 
-# ============================================
-# FUNCIONES EXISTENTES (sin cambios importantes)
-# ============================================
-
 def crear_velocimetro_mejorado(valor, titulo, valor_min=0, valor_max=100, color_verde=80, color_amarillo=60):
-    """Crea un velocímetro mejorado con aguja y más grande"""
     if valor >= color_verde:
         color_aguja = '#32CD32'
     elif valor >= color_amarillo:
@@ -659,11 +502,7 @@ def crear_velocimetro_mejorado(valor, titulo, valor_min=0, valor_max=100, color_
     
     fig.update_layout(
         polar=dict(
-            radialaxis=dict(
-                visible=True,
-                range=[0, 1],
-                showticklabels=False
-            ),
+            radialaxis=dict(visible=True, range=[0, 1], showticklabels=False),
             angularaxis=dict(
                 rotation=90,
                 direction="clockwise",
@@ -677,40 +516,30 @@ def crear_velocimetro_mejorado(valor, titulo, valor_min=0, valor_max=100, color_
         ),
         showlegend=False,
         height=350,
-        title=dict(
-            text=titulo,
-            font=dict(size=18, color='black'),
-            x=0.5,
-            y=0.95
-        ),
+        title=dict(text=titulo, font=dict(size=18, color='black'), x=0.5, y=0.95),
         margin=dict(t=100, b=50, l=50, r=50)
     )
     
     fig.add_annotation(
-        x=0.5,
-        y=0.5,
+        x=0.5, y=0.5,
         text=f"<b>{valor:.1f}</b>",
         showarrow=False,
         font=dict(size=32, color='black'),
-        xref="paper",
-        yref="paper"
+        xref="paper", yref="paper"
     )
     
     if valor_max == 100:
         fig.add_annotation(
-            x=0.5,
-            y=0.4,
+            x=0.5, y=0.4,
             text="%",
             showarrow=False,
             font=dict(size=20, color='gray'),
-            xref="paper",
-            yref="paper"
+            xref="paper", yref="paper"
         )
     
     return fig
 
 def separar_tecnicos(df):
-    """Separa múltiples técnicos en una sola celda y crea filas individuales"""
     if df.empty or 'RESPONSABLE' not in df.columns:
         return df
     
@@ -737,11 +566,7 @@ def separar_tecnicos(df):
                     break
         
         if not encontrado_delimitador:
-            patrones = [
-                r'(\w+\s+\d+\s*,\s*\w+\s+\d+)',
-                r'(\w+\s+y\s+\w+)',
-            ]
-            
+            patrones = [r'(\w+\s+\d+\s*,\s*\w+\s+\d+)', r'(\w+\s+y\s+\w+)']
             for patron in patrones:
                 coincidencias = re.findall(patron, responsable)
                 if coincidencias:
@@ -754,25 +579,20 @@ def separar_tecnicos(df):
                     break
         
         if len(tecnicos_encontrados) > 1:
-            num_tecnicos = len(tecnicos_encontrados)
-            
             for tecnico in tecnicos_encontrados:
                 nueva_fila = row.copy()
                 nueva_fila['RESPONSABLE'] = tecnico
-                
                 if 'TR_MIN' in nueva_fila:
                     nueva_fila['TR_MIN'] = row['TR_MIN'] if pd.notna(row['TR_MIN']) else 0
                 if 'H_EXTRA_MIN' in nueva_fila:
                     nueva_fila['H_EXTRA_MIN'] = row['H_EXTRA_MIN'] if pd.notna(row['H_EXTRA_MIN']) else 0
                 if 'H_NORMAL_MIN' in nueva_fila:
                     nueva_fila['H_NORMAL_MIN'] = row['H_NORMAL_MIN'] if pd.notna(row['H_NORMAL_MIN']) else 0
-                
                 filas_separadas.append(nueva_fila)
         else:
             filas_separadas.append(row)
     
     df_resultado = pd.DataFrame(filas_separadas)
-    # Asegurar que la columna RESPONSABLE sea string
     df_resultado['RESPONSABLE'] = df_resultado['RESPONSABLE'].astype(str).str.strip()
     return df_resultado
 
@@ -788,16 +608,10 @@ def load_personal_data_from_google_sheets():
         st.error(f"Error al cargar datos del personal desde Google Sheets: {e}")
         return pd.DataFrame()
 
-# ============================================
-# NUEVA FUNCIÓN: Calcular costos de horas extras desde datos DETALLE_HE
-# ============================================
-
 def calculate_overtime_costs_from_details(overtime_data, personal_data):
-    """Calcula costos de horas extras basados en datos de DETALLE_HE"""
     if overtime_data.empty:
         return pd.DataFrame(), pd.DataFrame(), "No hay datos de horas extras en el período seleccionado"
     
-    # Verificar columnas necesarias
     required_columns = ['RESPONSABLE', 'H_EXTRA_MIN', 'SALDO_HORAS_EXTRAS', 'INICIO_HORAS_EXTRAS']
     missing_columns = [col for col in required_columns if col not in overtime_data.columns]
     
@@ -807,18 +621,14 @@ def calculate_overtime_costs_from_details(overtime_data, personal_data):
     
     try:
         df_costs = overtime_data.copy()
-        
-        # Limpiar y preparar datos
         df_costs = df_costs[df_costs['RESPONSABLE'].notna()]
         df_costs['RESPONSABLE'] = df_costs['RESPONSABLE'].astype(str).str.strip()
         
         if df_costs.empty:
             return pd.DataFrame(), pd.DataFrame(), "No hay registros con responsable asignado"
         
-        # Convertir minutos a horas
         df_costs['H_EXTRA_HORAS'] = df_costs['H_EXTRA_MIN'] / 60
         
-        # Obtener semana y año
         if not pd.api.types.is_datetime64_any_dtype(df_costs['INICIO_HORAS_EXTRAS']):
             df_costs['INICIO_HORAS_EXTRAS'] = pd.to_datetime(df_costs['INICIO_HORAS_EXTRAS'], errors='coerce')
         
@@ -830,11 +640,8 @@ def calculate_overtime_costs_from_details(overtime_data, personal_data):
         df_costs['SEMANA'] = df_costs['INICIO_HORAS_EXTRAS'].dt.isocalendar().week
         df_costs['AÑO'] = df_costs['INICIO_HORAS_EXTRAS'].dt.year
         df_costs['SEMANA_STR'] = df_costs['AÑO'].astype(str) + '-S' + df_costs['SEMANA'].astype(str).str.zfill(2)
-        
-        # Asegurar que SEMANA_STR sea string
         df_costs['SEMANA_STR'] = df_costs['SEMANA_STR'].astype(str)
         
-        # Agrupar por semana y técnico
         weekly_costs = df_costs.groupby(['SEMANA_STR', 'RESPONSABLE']).agg({
             'SALDO_HORAS_EXTRAS': 'sum',
             'H_EXTRA_HORAS': 'sum',
@@ -842,7 +649,6 @@ def calculate_overtime_costs_from_details(overtime_data, personal_data):
         }).reset_index()
         weekly_costs = weekly_costs.rename(columns={'RESPONSABLE': 'TECNICO', 'SALDO_HORAS_EXTRAS': 'COSTO_TOTAL'})
         
-        # Agrupar por técnico (acumulado)
         accumulated_costs = df_costs.groupby('RESPONSABLE').agg({
             'SALDO_HORAS_EXTRAS': 'sum',
             'H_EXTRA_HORAS': 'sum',
@@ -863,8 +669,6 @@ def calculate_overtime_costs_from_details(overtime_data, personal_data):
         return pd.DataFrame(), pd.DataFrame(), f"Error en cálculo: {str(e)}"
 
 def show_detailed_costs_info(weekly_costs, accumulated_costs, personal_data):
-    """Muestra información detallada sobre los costos calculados"""
-    
     st.subheader("📋 Información Detallada de Costos")
     
     if accumulated_costs.empty:
@@ -895,8 +699,7 @@ def show_detailed_costs_info(weekly_costs, accumulated_costs, personal_data):
     tabla_detalle['COSTO_TOTAL_FMT'] = tabla_detalle['COSTO_TOTAL'].apply(lambda x: f"${x:,.2f}")
     tabla_detalle['HORAS_EXTRA_FMT'] = tabla_detalle['H_EXTRA_HORAS'].apply(lambda x: f"{x:,.2f}")
     tabla_detalle['COSTO_POR_HORA'] = tabla_detalle.apply(
-        lambda x: x['COSTO_TOTAL'] / x['H_EXTRA_HORAS'] if x['H_EXTRA_HORAS'] > 0 else 0, 
-        axis=1
+        lambda x: x['COSTO_TOTAL'] / x['H_EXTRA_HORAS'] if x['H_EXTRA_HORAS'] > 0 else 0, axis=1
     )
     tabla_detalle['COSTO_POR_HORA_FMT'] = tabla_detalle['COSTO_POR_HORA'].apply(lambda x: f"${x:,.2f}")
     tabla_detalle['PORCENTAJE'] = (tabla_detalle['COSTO_TOTAL'] / total_costo * 100) if total_costo > 0 else 0
@@ -913,7 +716,6 @@ def show_detailed_costs_info(weekly_costs, accumulated_costs, personal_data):
             weekly_formatted = weekly_costs.copy()
             weekly_formatted['COSTO_TOTAL_FMT'] = weekly_formatted['COSTO_TOTAL'].apply(lambda x: f"${x:,.2f}")
             weekly_formatted['HORAS_EXTRA_FMT'] = weekly_formatted['H_EXTRA_HORAS'].apply(lambda x: f"{x:,.2f}")
-            
             st.dataframe(
                 weekly_formatted[['SEMANA_STR', 'TECNICO', 'HORAS_EXTRA_FMT', 'COSTO_TOTAL_FMT']],
                 use_container_width=True
@@ -949,7 +751,7 @@ def clean_and_prepare_data(df):
         'FECHA DE FIN': 'FECHA_DE_FIN',
         'Tiempo Prog (min)': 'TIEMPO_PROG_MIN',
         'PRODUCCIÓN AFECTADA (SI-NO)': 'PRODUCCION_AFECTADA',
-        'TIEMPO ESTIMADO DIARIO (min)': 'TDISPONIBLE_OLD',  # Cambiado a TDISPONIBLE_OLD
+        'TIEMPO ESTIMADO DIARIO (min)': 'TDISPONIBLE_OLD',
         'TR (min)': 'TR_MIN',
         'TFC (min)': 'TFC_MIN',
         'TFS (min)': 'TFS_MIN',
@@ -989,37 +791,28 @@ def clean_and_prepare_data(df):
     
     if 'TR_MIN' in df_clean.columns:
         df_clean['TR_MIN'] = df_clean.apply(
-            lambda x: x['TR_MIN_CALCULADO'] if pd.isna(x['TR_MIN']) or x['TR_MIN'] == 0 else x['TR_MIN'], 
-            axis=1
+            lambda x: x['TR_MIN_CALCULADO'] if pd.isna(x['TR_MIN']) or x['TR_MIN'] == 0 else x['TR_MIN'], axis=1
         )
     else:
-        df_clean['TR_MIN'] = df_clean['TR_MIN_CALCULado']
+        df_clean['TR_MIN'] = df_clean['TR_MIN_CALCULADO']
     
     numeric_columns = ['TR_MIN', 'TFC_MIN', 'TFS_MIN', 'TDISPONIBLE_OLD', 'TIEMPO_PROG_MIN']
     for col in numeric_columns:
         if col in df_clean.columns:
             df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(0)
     
-    # Eliminar columna de horas extras ya que ahora usamos DETALLE_HE
     if 'H_EXTRA_MIN' in df_clean.columns:
         df_clean = df_clean.drop(columns=['H_EXTRA_MIN'])
     
-    # Asegurar que la columna RESPONSABLE sea string
     if 'RESPONSABLE' in df_clean.columns:
         df_clean['RESPONSABLE'] = df_clean['RESPONSABLE'].astype(str).str.strip()
     
     return df_clean
 
-# ============================================
-# NUEVAS FUNCIONES: Obtener datos de horas extras por técnico desde DETALLE_HE
-# ============================================
-
 def get_weekly_overtime_data(overtime_data):
-    """Obtiene datos semanales de horas extras desde DETALLE_HE"""
     if overtime_data.empty:
         return pd.DataFrame()
     
-    # Verificar que tenemos las columnas necesarias
     required_cols = ['INICIO_HORAS_EXTRAS', 'RESPONSABLE', 'H_EXTRA_MIN', 'SALDO_HORAS_EXTRAS']
     for col in required_cols:
         if col not in overtime_data.columns:
@@ -1028,32 +821,26 @@ def get_weekly_overtime_data(overtime_data):
     
     df_weekly = overtime_data.copy()
     
-    # Asegurarnos de que la columna de fecha sea datetime
     if not pd.api.types.is_datetime64_any_dtype(df_weekly['INICIO_HORAS_EXTRAS']):
         df_weekly['INICIO_HORAS_EXTRAS'] = pd.to_datetime(df_weekly['INICIO_HORAS_EXTRAS'], errors='coerce')
     
-    # Eliminar filas con fechas inválidas
     df_weekly = df_weekly[df_weekly['INICIO_HORAS_EXTRAS'].notna()]
     
     if df_weekly.empty:
         return pd.DataFrame()
     
-    # Asegurar que RESPONSABLE sea string
     df_weekly['RESPONSABLE'] = df_weekly['RESPONSABLE'].astype(str).str.strip()
     
-    # Obtener semana y año
     try:
         df_weekly['SEMANA'] = df_weekly['INICIO_HORAS_EXTRAS'].dt.isocalendar().week
         df_weekly['AÑO'] = df_weekly['INICIO_HORAS_EXTRAS'].dt.year
         df_weekly['SEMANA_STR'] = df_weekly.apply(
-            lambda x: f"{int(x['AÑO'])}-S{int(x['SEMANA']):02d}", 
-            axis=1
+            lambda x: f"{int(x['AÑO'])}-S{int(x['SEMANA']):02d}", axis=1
         )
     except Exception as e:
         st.error(f"Error al calcular semana: {e}")
         return pd.DataFrame()
     
-    # Agrupar por semana y técnico
     try:
         weekly_overtime = df_weekly.groupby(['SEMANA_STR', 'AÑO', 'SEMANA', 'RESPONSABLE']).agg({
             'H_EXTRA_MIN': 'sum',
@@ -1061,8 +848,6 @@ def get_weekly_overtime_data(overtime_data):
         }).reset_index()
         
         weekly_overtime['H_EXTRA_HORAS'] = weekly_overtime['H_EXTRA_MIN'] / 60
-        
-        # Crear columna numérica para ordenar correctamente las semanas
         weekly_overtime['SEMANA_NUM'] = weekly_overtime['AÑO'] * 100 + weekly_overtime['SEMANA']
         weekly_overtime = weekly_overtime.sort_values('SEMANA_NUM')
         
@@ -1072,14 +857,11 @@ def get_weekly_overtime_data(overtime_data):
         return pd.DataFrame()
 
 def get_accumulated_overtime_data(overtime_data):
-    """Obtiene datos acumulados de horas extras desde DETALLE_HE"""
     if overtime_data.empty or 'RESPONSABLE' not in overtime_data.columns:
         return pd.DataFrame()
     
-    # Asegurar que RESPONSABLE sea string
     overtime_data['RESPONSABLE'] = overtime_data['RESPONSABLE'].astype(str).str.strip()
     
-    # Agrupar por técnico
     overtime_tech_data = overtime_data.groupby('RESPONSABLE').agg({
         'H_EXTRA_MIN': 'sum',
         'SALDO_HORAS_EXTRAS': 'sum'
@@ -1091,7 +873,6 @@ def get_accumulated_overtime_data(overtime_data):
     return overtime_tech_data
 
 def get_weekly_technician_hours(df, overtime_data):
-    """Obtiene datos semanales de horas por técnico combinando datos normales y extras"""
     if df.empty or 'FECHA_DE_INICIO' not in df.columns or 'RESPONSABLE' not in df.columns:
         return pd.DataFrame()
     
@@ -1100,30 +881,21 @@ def get_weekly_technician_hours(df, overtime_data):
     
     df_weekly['SEMANA'] = df_weekly['FECHA_DE_INICIO'].dt.isocalendar().week
     df_weekly['AÑO'] = df_weekly['FECHA_DE_INICIO'].dt.year
-    df_weekly['SEMANA_STR'] = df_weekly.apply(
-        lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", 
-        axis=1
-    )
-    
-    # Asegurar que RESPONSABLE y SEMANA_STR sean string
+    df_weekly['SEMANA_STR'] = df_weekly.apply(lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", axis=1)
     df_weekly['RESPONSABLE'] = df_weekly['RESPONSABLE'].astype(str).str.strip()
     df_weekly['SEMANA_STR'] = df_weekly['SEMANA_STR'].astype(str)
     
-    # Horas normales por técnico y semana
     weekly_normal_hours = df_weekly.groupby(['SEMANA_STR', 'AÑO', 'SEMANA', 'RESPONSABLE']).agg({
         'TR_MIN': 'sum'
     }).reset_index()
     weekly_normal_hours['TR_HORAS'] = weekly_normal_hours['TR_MIN'] / 60
     
-    # Horas extras por técnico y semana (de DETALLE_HE)
     weekly_overtime_hours = get_weekly_overtime_data(overtime_data)
     
-    # Asegurar que en weekly_overtime_hours también sean string
     if not weekly_overtime_hours.empty:
         weekly_overtime_hours['RESPONSABLE'] = weekly_overtime_hours['RESPONSABLE'].astype(str).str.strip()
         weekly_overtime_hours['SEMANA_STR'] = weekly_overtime_hours['SEMANA_STR'].astype(str)
     
-    # Combinar datos normales y extras
     if not weekly_overtime_hours.empty:
         weekly_tech_data = pd.merge(
             weekly_normal_hours,
@@ -1142,25 +914,17 @@ def get_weekly_technician_hours(df, overtime_data):
     return weekly_tech_data
 
 def get_accumulated_technician_hours(df, overtime_data):
-    """Obtiene datos acumulados de horas por técnico combinando datos normales y extras"""
     if df.empty or 'RESPONSABLE' not in df.columns:
         return pd.DataFrame()
     
     df_separado = separar_tecnicos(df)
     
-    # Horas normales acumuladas
-    normal_tech_data = df_separado.groupby('RESPONSABLE').agg({
-        'TR_MIN': 'sum'
-    }).reset_index()
+    normal_tech_data = df_separado.groupby('RESPONSABLE').agg({'TR_MIN': 'sum'}).reset_index()
     normal_tech_data['TR_HORAS'] = normal_tech_data['TR_MIN'] / 60
     
-    # Horas extras acumuladas (de DETALLE_HE)
     overtime_tech_data = get_accumulated_overtime_data(overtime_data)
-    
-    # Asegurar que ambas columnas sean string para el merge
     normal_tech_data['RESPONSABLE'] = normal_tech_data['RESPONSABLE'].astype(str).str.strip()
     
-    # Combinar datos normales y extras
     if not overtime_tech_data.empty:
         overtime_tech_data['RESPONSABLE'] = overtime_tech_data['RESPONSABLE'].astype(str).str.strip()
         tech_data = pd.merge(
@@ -1176,7 +940,6 @@ def get_accumulated_technician_hours(df, overtime_data):
         tech_data['SALDO_HORAS_EXTRAS'] = 0
     
     tech_data = tech_data.sort_values('TR_HORAS', ascending=False)
-    
     return tech_data
 
 def get_weekly_emergency_data(df):
@@ -1186,10 +949,7 @@ def get_weekly_emergency_data(df):
     df_weekly = df.copy()
     df_weekly['SEMANA'] = df_weekly['FECHA_DE_INICIO'].dt.isocalendar().week
     df_weekly['AÑO'] = df_weekly['FECHA_DE_INICIO'].dt.year
-    df_weekly['SEMANA_STR'] = df_weekly.apply(
-        lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", 
-        axis=1
-    )
+    df_weekly['SEMANA_STR'] = df_weekly.apply(lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", axis=1)
     
     df_emergency = df_weekly[df_weekly['TIPO DE MTTO'] == 'CORRECTIVO DE EMERGENCIA'].copy()
     
@@ -1210,8 +970,7 @@ def get_weekly_emergency_data(df):
     weekly_emergency_data['NUM_ORDENES_EMERGENCIA_PARADA'] = weekly_emergency_data['NUM_ORDENES_EMERGENCIA_PARADA'].fillna(0)
     
     weekly_emergency_data['MTTR_SEMANAL'] = weekly_emergency_data.apply(
-        lambda row: row['TR_MIN'] / row['NUM_ORDENES_EMERGENCIA'] if row['NUM_ORDENES_EMERGENCIA'] > 0 else 0, 
-        axis=1
+        lambda row: row['TR_MIN'] / row['NUM_ORDENES_EMERGENCIA'] if row['NUM_ORDENES_EMERGENCIA'] > 0 else 0, axis=1
     )
     
     weekly_emergency_data['SEMANA_NUM'] = weekly_emergency_data['AÑO'] * 100 + weekly_emergency_data['SEMANA']
@@ -1228,7 +987,6 @@ def get_monthly_plan_data(df, year=2026):
     monthly_data = pd.DataFrame(meses_todos, columns=['MES', 'MES_NOMBRE'])
     monthly_data['AÑO'] = year
     monthly_data['MES_ORDEN'] = monthly_data['MES']
-    
     monthly_data['TOTAL_PLANIFICADAS'] = 0
     monthly_data['ORDENES_CULMINADAS'] = 0
     monthly_data['ORDENES_EN_EJECUCION'] = 0
@@ -1286,33 +1044,23 @@ def get_monthly_plan_data(df, year=2026):
         (df_plan_filtrado['FECHA_INICIO_DATE'] < fecha_actual) & (df_plan_filtrado['FECHA_FIN_DATE'] < fecha_actual)
     )
     
-    monthly_real_data = df_plan_filtrado.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
-        'TIPO DE MTTO': 'count'
-    }).reset_index()
+    monthly_real_data = df_plan_filtrado.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({'TIPO DE MTTO': 'count'}).reset_index()
     monthly_real_data = monthly_real_data.rename(columns={'TIPO DE MTTO': 'TOTAL_PLANIFICADAS'})
     
     df_culminadas = df_plan_filtrado[mask_culminadas]
-    monthly_culminadas = df_culminadas.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
-        'TIPO DE MTTO': 'count'
-    }).reset_index()
+    monthly_culminadas = df_culminadas.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({'TIPO DE MTTO': 'count'}).reset_index()
     monthly_culminadas = monthly_culminadas.rename(columns={'TIPO DE MTTO': 'ORDENES_CULMINADAS'})
     
     df_en_ejecucion = df_plan_filtrado[mask_en_ejecucion]
-    monthly_en_ejecucion = df_en_ejecucion.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
-        'TIPO DE MTTO': 'count'
-    }).reset_index()
+    monthly_en_ejecucion = df_en_ejecucion.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({'TIPO DE MTTO': 'count'}).reset_index()
     monthly_en_ejecucion = monthly_en_ejecucion.rename(columns={'TIPO DE MTTO': 'ORDENES_EN_EJECUCION'})
     
     df_retrasadas = df_plan_filtrado[mask_retrasadas]
-    monthly_retrasadas = df_retrasadas.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
-        'TIPO DE MTTO': 'count'
-    }).reset_index()
+    monthly_retrasadas = df_retrasadas.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({'TIPO DE MTTO': 'count'}).reset_index()
     monthly_retrasadas = monthly_retrasadas.rename(columns={'TIPO DE MTTO': 'ORDENES_RETRASADAS'})
     
     df_proyectadas = df_plan_filtrado[mask_proyectadas]
-    monthly_proyectadas = df_proyectadas.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({
-        'TIPO DE MTTO': 'count'
-    }).reset_index()
+    monthly_proyectadas = df_proyectadas.groupby(['AÑO', 'MES', 'MES_NOMBRE']).agg({'TIPO DE MTTO': 'count'}).reset_index()
     monthly_proyectadas = monthly_proyectadas.rename(columns={'TIPO DE MTTO': 'ORDENES_PROYECTADAS'})
     
     for _, row in monthly_real_data.iterrows():
@@ -1345,12 +1093,10 @@ def get_monthly_plan_data(df, year=2026):
     
     monthly_data['CUMPLIMIENTO_PCT'] = monthly_data.apply(
         lambda row: (row['ORDENES_CULMINADAS'] / row['TOTAL_PLANIFICADAS']) * 100 
-        if row['TOTAL_PLANIFICADAS'] > 0 else 0,
-        axis=1
+        if row['TOTAL_PLANIFICADAS'] > 0 else 0, axis=1
     )
     
     monthly_data = monthly_data.sort_values('MES_ORDEN')
-    
     return monthly_data
 
 def get_total_planificadas_mes_actual(df, year=2026):
@@ -1399,7 +1145,6 @@ def get_ordenes_mes_actual(df):
         df_mes_actual.loc[df_mes_actual['STATUS_NORM'].str.contains('PENDIENTE'), 'STATUS_NORM'] = 'PENDIENTE'
     
     fecha_actual = datetime.now().date()
-    
     df_mes_actual['FECHA_INICIO_DATE'] = df_mes_actual['FECHA_DE_INICIO'].dt.date
     df_mes_actual['FECHA_FIN_DATE'] = df_mes_actual['FECHA_DE_FIN'].dt.date
     
@@ -1499,27 +1244,21 @@ def apply_filters(df, equipo_filter, conjunto_filter, ubicacion_filter, tipo_mtt
     return filtered_df
 
 def apply_overtime_filters(overtime_df, fecha_inicio, fecha_fin):
-    """Aplica filtros a los datos de horas extras"""
     if overtime_df.empty:
         return overtime_df
     
     filtered_overtime = overtime_df.copy()
     
-    # Filtrar por rango de fechas
     if fecha_inicio is not None and fecha_fin is not None:
-        # Convertir a datetime para incluir hora
         inicio_datetime = datetime.combine(fecha_inicio, datetime.min.time())
         fin_datetime = datetime.combine(fecha_fin, datetime.max.time())
         
-        # Asegurarse de que las columnas de fecha sean datetime
         if 'INICIO_HORAS_EXTRAS' in filtered_overtime.columns:
-            # Si no es datetime, convertir
             if not pd.api.types.is_datetime64_any_dtype(filtered_overtime['INICIO_HORAS_EXTRAS']):
                 filtered_overtime['INICIO_HORAS_EXTRAS'] = pd.to_datetime(
                     filtered_overtime['INICIO_HORAS_EXTRAS'], errors='coerce'
                 )
             
-            # Aplicar filtro
             filtered_overtime = filtered_overtime[
                 (filtered_overtime['INICIO_HORAS_EXTRAS'] >= inicio_datetime) &
                 (filtered_overtime['INICIO_HORAS_EXTRAS'] <= fin_datetime)
@@ -1537,7 +1276,6 @@ def get_current_datetime_spanish():
     month = months[now.month - 1]
     year = now.year
     time_str = now.strftime("%H:%M:%S")
-    
     return f"{day} de {month} de {year}, {time_str}"
 
 def format_date_dd_mm_aaaa(date):
@@ -1552,128 +1290,422 @@ def format_date_dd_mm_aaaa(date):
         return str(date)
 
 # ============================================
-# NUEVA FUNCIÓN: Generar reporte de horas extras en Excel
+# FUNCIÓN MEJORADA: Generar reporte de horas extras en formato Fortidex
+# Replica el "Reporte de Justificación de Sobretiempo" de la imagen
 # ============================================
 
 def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
-    """Genera un archivo Excel con el reporte de horas extras"""
+    """
+    Genera un archivo Excel con:
+    - Hoja "HE Semanal por Técnico": tabla semanal por cada técnico con columnas
+      SEMANA, DÍA, CANT. HORAS 50%, CANT. HORAS 100%, NÚMERO DE ÓRDENES
+    - Hoja "Resumen por Técnico": totales acumulados por técnico
+    - Hoja "Detalle Registros": datos crudos completos
+    """
     if overtime_data.empty:
         return None
-    
-    # Crear un DataFrame con los datos para el reporte
-    report_df = overtime_data.copy()
 
-    # FORMATO ESPECIAL PARA COLUMNA OT - ENTEROS SIN DECIMALES
-    if 'OT' in report_df.columns:
-        def format_ot_for_excel(ot_value):
-            if pd.isna(ot_value) or ot_value == '':
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        wb = Workbook()
+        # Eliminar hoja por defecto
+        wb.remove(wb.active)
+
+        # ── Paleta de colores Fortidex ─────────────────────────────────────
+        FORTIDEX_ORANGE = "FF8C00"
+        FORTIDEX_BLUE   = "1F4E79"
+        HEADER_BLUE     = "BDD7EE"
+        ROW_GRAY        = "F2F2F2"
+        TOTAL_GREEN     = "E2EFDA"
+        SUM_BLUE        = "D6E4F0"
+        WHITE           = "FFFFFF"
+        BLACK           = "000000"
+        TECNICO_HEADER  = "D9E1F2"  # azul muy claro para bloque de técnico
+
+        thin  = Side(style="thin",   color=BLACK)
+        thick = Side(style="medium", color="1F4E79")
+        thin_border  = Border(left=thin,  right=thin,  top=thin,  bottom=thin)
+        thick_border = Border(left=thick, right=thick, top=thick, bottom=thick)
+
+        def cs(ws, row, col, value="", bold=False, size=10, color=BLACK,
+               bg=None, h_align="center", v_align="center",
+               wrap=False, border=None, number_format=None):
+            """Helper: aplica estilo a una celda."""
+            c = ws.cell(row=row, column=col, value=value)
+            c.font      = Font(name="Arial", bold=bold, size=size, color=color)
+            c.alignment = Alignment(horizontal=h_align, vertical=v_align, wrap_text=wrap)
+            if bg:
+                c.fill = PatternFill("solid", fgColor=bg)
+            if border:
+                c.border = border
+            if number_format:
+                c.number_format = number_format
+            return c
+
+        def ms(ws, r1, c1, r2, c2, **kwargs):
+            """Helper: merge + estilo."""
+            ws.merge_cells(start_row=r1, start_column=c1, end_row=r2, end_column=c2)
+            return cs(ws, r1, c1, **kwargs)
+
+        # ── Preprocesar datos ──────────────────────────────────────────────
+        df = overtime_data.copy()
+
+        for col_check, default in [
+            ('RESPONSABLE', "SIN NOMBRE"),
+            ('INICIO_HORAS_EXTRAS', pd.NaT),
+            ('FIN_HORAS_EXTRAS', pd.NaT),
+            ('HORAS_EXTRAS', 0.0),
+            ('SALDO_HORAS_EXTRAS', 0.0),
+        ]:
+            if col_check not in df.columns:
+                df[col_check] = default
+
+        for col_dt in ['INICIO_HORAS_EXTRAS', 'FIN_HORAS_EXTRAS']:
+            if not pd.api.types.is_datetime64_any_dtype(df[col_dt]):
+                df[col_dt] = pd.to_datetime(df[col_dt], errors='coerce')
+
+        df['RESPONSABLE'] = df['RESPONSABLE'].astype(str).str.strip()
+        df = df[(df['RESPONSABLE'].str.len() > 0) & (df['RESPONSABLE'] != 'nan')]
+
+        def fmt_ot(v):
+            if pd.isna(v) or str(v).strip() in ('', 'nan', 'None'):
                 return ''
-            
-            ot_str = str(ot_value).strip()
-            
-            # Remover .0 al final si existe
-            if ot_str.endswith('.0'):
-                return ot_str[:-2]
-            
-            # Si tiene punto decimal, intentar convertir a entero
-            if '.' in ot_str:
+            s = str(v).strip()
+            if s.endswith('.0'):
+                s = s[:-2]
+            try:
+                f = float(s)
+                return str(int(f)) if f.is_integer() else s
+            except:
+                return s
+
+        df['OT_FMT'] = df['OT'].apply(fmt_ot) if 'OT' in df.columns else ''
+
+        df_valid = df[df['INICIO_HORAS_EXTRAS'].notna()].copy()
+        df_valid['SEMANA_ISO'] = df_valid['INICIO_HORAS_EXTRAS'].dt.isocalendar().week.astype(int)
+        df_valid['AÑO_ISO']   = df_valid['INICIO_HORAS_EXTRAS'].dt.isocalendar().year.astype(int)
+        df_valid['SEMANA_STR'] = df_valid.apply(
+            lambda x: f"{x['AÑO_ISO']}-S{x['SEMANA_ISO']:02d}", axis=1
+        )
+        df_valid['DOW'] = df_valid['INICIO_HORAS_EXTRAS'].dt.dayofweek  # 0=Lun…6=Dom
+
+        # Días de la semana en orden
+        DIAS_ORDEN   = [0, 1, 2, 3, 4, 5, 6]
+        DIAS_NOMBRES = {0: 'LUNES', 1: 'MARTES', 2: 'MIÉRCOLES',
+                        3: 'JUEVES', 4: 'VIERNES', 5: 'SÁBADO', 6: 'DOMINGO'}
+        # Sábado y domingo → 100 %; resto → 50 %
+        DIAS_100 = {5, 6}
+
+        df_valid = df_valid.sort_values(['RESPONSABLE', 'AÑO_ISO', 'SEMANA_ISO', 'DOW'])
+
+        # ══════════════════════════════════════════════════════════════════
+        # HOJA 1: "HE Semanal por Técnico"
+        # Columnas: SEMANA | DÍA | CANT. HORAS 50% | CANT. HORAS 100% | N° OT
+        # Solo se muestran los días que caen dentro del rango de fechas filtrado
+        # La columna N° OT muestra los códigos de OT del día (no la cantidad)
+        # ══════════════════════════════════════════════════════════════════
+        ws1 = wb.create_sheet("HE Semanal por Técnico")
+
+        # Anchos de columna — N° OT necesita más espacio para los códigos
+        col_w = {1: 20, 2: 14, 3: 22, 4: 22, 5: 40}
+        for ci, w in col_w.items():
+            ws1.column_dimensions[get_column_letter(ci)].width = w
+
+        # Título general
+        ws1.row_dimensions[1].height = 24
+        ms(ws1, 1, 1, 1, 5,
+           value="REPORTE DE HORAS EXTRAS SEMANAL POR TÉCNICO",
+           bold=True, size=13, color=WHITE, bg=FORTIDEX_BLUE,
+           h_align="center", border=thick_border)
+
+        # Sub-título período
+        ws1.row_dimensions[2].height = 15
+        ms(ws1, 2, 1, 2, 5,
+           value=f"Período: {fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}",
+           bold=False, size=10, color=FORTIDEX_BLUE, bg=HEADER_BLUE,
+           h_align="center", border=thin_border)
+
+        current_row = 3
+
+        # Convertir fecha_inicio y fecha_fin a date para comparación
+        fi_date = fecha_inicio.date() if hasattr(fecha_inicio, 'date') else fecha_inicio
+        ff_date = fecha_fin.date()    if hasattr(fecha_fin,    'date') else fecha_fin
+
+        tecnicos_lista = sorted(df_valid['RESPONSABLE'].unique())
+
+        for tecnico in tecnicos_lista:
+            df_tec = df_valid[df_valid['RESPONSABLE'] == tecnico].copy()
+
+            # ── Cabecera del bloque del técnico ───────────────────────────
+            ws1.row_dimensions[current_row].height = 18
+            ms(ws1, current_row, 1, current_row, 5,
+               value=f"TÉCNICO:  {tecnico.upper()}",
+               bold=True, size=11, color=FORTIDEX_BLUE, bg=TECNICO_HEADER,
+               h_align="left", border=thick_border)
+            current_row += 1
+
+            # ── Cabecera de columnas ───────────────────────────────────────
+            headers = ["SEMANA", "DÍA", "CANT. HORAS 50%", "CANT. HORAS 100%", "N° OT"]
+            ws1.row_dimensions[current_row].height = 20
+            for ci, hdr in enumerate(headers, start=1):
+                cs(ws1, current_row, ci, hdr,
+                   bold=True, size=10, color=WHITE, bg=FORTIDEX_ORANGE,
+                   border=thin_border)
+            current_row += 1
+
+            semanas_tec = sorted(df_tec['SEMANA_STR'].unique())
+
+            total_h50_tec  = 0.0
+            total_h100_tec = 0.0
+
+            for semana_str in semanas_tec:
+                df_sem = df_tec[df_tec['SEMANA_STR'] == semana_str].copy()
+
+                total_h50_sem  = 0.0
+                total_h100_sem = 0.0
+
+                # Calcular lunes y domingo de la semana ISO
+                año_iso    = int(df_sem['AÑO_ISO'].iloc[0])
+                semana_iso = int(df_sem['SEMANA_ISO'].iloc[0])
                 try:
-                    num = float(ot_str)
-                    if num.is_integer():
-                        return str(int(num))
+                    # fromisocalendar es el método correcto para semanas ISO
+                    # strptime con %W calcula semanas del año civil (no ISO)
+                    # y devuelve fechas incorrectas (ej: S08-2026 → 23/02 en vez de 16/02)
+                    lunes_d   = datetime.fromisocalendar(int(año_iso), int(semana_iso), 1).date()
+                    domingo_d = lunes_d + timedelta(days=6)
+                except Exception:
+                    lunes_d   = df_sem['INICIO_HORAS_EXTRAS'].min().date()
+                    domingo_d = df_sem['INICIO_HORAS_EXTRAS'].max().date()
+
+                # Recortar el rango de días al período filtrado
+                # Solo mostrar días que estén dentro de [fi_date, ff_date]
+                dia_inicio_semana = max(lunes_d,   fi_date)
+                dia_fin_semana    = min(domingo_d, ff_date)
+
+                # Etiqueta de semana con las fechas reales recortadas
+                semana_label = (
+                    f"S{semana_iso:02d}  "
+                    f"{dia_inicio_semana.strftime('%d/%m')} - "
+                    f"{dia_fin_semana.strftime('%d/%m/%Y')}"
+                )
+
+                # Generar la lista de días dentro del rango para esta semana
+                dias_en_rango = []
+                for dow in DIAS_ORDEN:
+                    fecha_dia = lunes_d + timedelta(days=dow)
+                    if fi_date <= fecha_dia <= ff_date:
+                        dias_en_rango.append((dow, fecha_dia))
+
+                primera_fila_semana = True
+
+                for i_dia, (dow, fecha_dia) in enumerate(dias_en_rango):
+                    dia_nombre = DIAS_NOMBRES[dow]
+                    df_dia     = df_sem[df_sem['DOW'] == dow]
+
+                    h_horas = float(df_dia['HORAS_EXTRAS'].sum()) if not df_dia.empty else 0.0
+                    bg_row  = WHITE if i_dia % 2 == 0 else ROW_GRAY
+
+                    # Obtener los códigos de OT del día (no la cantidad)
+                    if not df_dia.empty and 'OT_FMT' in df_dia.columns:
+                        ots = [str(v) for v in df_dia['OT_FMT'].dropna()
+                               if str(v).strip() not in ('', 'nan', 'None')]
+                        ot_str = " / ".join(ots) if ots else ""
                     else:
-                        # Mantener con 2 decimales si tiene decimales reales
-                        return f"{num:.2f}"
-                except:
-                    return ot_str
-            
-            return ot_str
-        
-        report_df['OT'] = report_df['OT'].apply(format_ot_for_excel)
-    
-    
-    # Seleccionar y ordenar columnas
-    columns_to_include = ['RESPONSABLE', 'OT', 'INICIO_HORAS_EXTRAS', 'FIN_HORAS_EXTRAS', 
-                         'HORAS_EXTRAS', 'H_EXTRA_MIN', 'SALDO_HORAS_EXTRAS']
-    
-    # Filtrar columnas que existen
-    existing_columns = [col for col in columns_to_include if col in report_df.columns]
-    report_df = report_df[existing_columns]
-    
-    # Renombrar columnas para mejor comprensión
-    column_names = {
-        'RESPONSABLE': 'Técnico',
-        'OT': 'N° OT',
-        'INICIO_HORAS_EXTRAS': 'Fecha/Hora Inicio',
-        'FIN_HORAS_EXTRAS': 'Fecha/Hora Fin',
-        'HORAS_EXTRAS': 'Horas Extras (horas)',
-        'H_EXTRA_MIN': 'Horas Extras (minutos)',
-        'SALDO_HORAS_EXTRAS': 'Valor en Dólares'
-    }
-    
-    report_df = report_df.rename(columns=column_names)
-    
-    # Formatear fechas
-    if 'Fecha/Hora Inicio' in report_df.columns:
-        report_df['Fecha/Hora Inicio'] = report_df['Fecha/Hora Inicio'].dt.strftime('%d/%m/%Y %H:%M:%S')
-    
-    if 'Fecha/Hora Fin' in report_df.columns:
-        report_df['Fecha/Hora Fin'] = report_df['Fecha/Hora Fin'].dt.strftime('%d/%m/%Y %H:%M:%S')
-    
-    # Crear un writer de Excel
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Escribir datos principales
-        report_df.to_excel(writer, sheet_name='Horas Extras', index=False)
-        
-        # Crear hoja de resumen
-        summary_data = []
-        
-        # Resumen por técnico
-        if 'Técnico' in report_df.columns and 'Horas Extras (horas)' in report_df.columns and 'Valor en Dólares' in report_df.columns:
-            tech_summary = report_df.groupby('Técnico').agg({
-                'Horas Extras (horas)': 'sum',
-                'Valor en Dólares': 'sum'
-            }).reset_index()
-            tech_summary = tech_summary.sort_values('Valor en Dólares', ascending=False)
-            
-            for _, row in tech_summary.iterrows():
-                summary_data.append({
-                    'Técnico': row['Técnico'],
-                    'Horas Extras (horas)': row['Horas Extras (horas)'],
-                    'Costo Total ($)': row['Valor en Dólares']
-                })
-        
-        # Totales generales
-        total_horas = report_df['Horas Extras (horas)'].sum() if 'Horas Extras (horas)' in report_df.columns else 0
-        total_costo = report_df['Valor en Dólares'].sum() if 'Valor en Dólares' in report_df.columns else 0
-        
-        summary_data.append({
-            'Técnico': 'TOTAL GENERAL',
-            'Horas Extras (horas)': total_horas,
-            'Costo Total ($)': total_costo
-        })
-        
-        summary_df = pd.DataFrame(summary_data)
-        summary_df.to_excel(writer, sheet_name='Resumen', index=False)
-        
-        # Ajustar ancho de columnas
-        for sheet in writer.sheets:
-            worksheet = writer.sheets[sheet]
-            for column in worksheet.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 30)
-                worksheet.column_dimensions[column_letter].width = adjusted_width
-    
-    processed_data = output.getvalue()
-    return processed_data
+                        ot_str = ""
+
+                    ws1.row_dimensions[current_row].height = 14
+
+                    # Columna SEMANA: solo en la primera fila del bloque de semana
+                    if primera_fila_semana:
+                        cs(ws1, current_row, 1, semana_label, size=9,
+                           bg=bg_row, border=thin_border, h_align="center", wrap=True)
+                        primera_fila_semana = False
+                    else:
+                        cs(ws1, current_row, 1, "", size=9, bg=bg_row, border=thin_border)
+
+                    cs(ws1, current_row, 2, dia_nombre, size=9,
+                       bg=bg_row, border=thin_border, bold=(dow in DIAS_100))
+
+                    # 50% días hábiles / 100% fin de semana
+                    if dow in DIAS_100:
+                        h50_val  = 0.0
+                        h100_val = h_horas
+                    else:
+                        h50_val  = h_horas
+                        h100_val = 0.0
+
+                    cs(ws1, current_row, 3,
+                       round(h50_val, 2) if h50_val > 0 else "",
+                       size=9, bg=bg_row, border=thin_border,
+                       number_format='0.00' if h50_val > 0 else None)
+                    cs(ws1, current_row, 4,
+                       round(h100_val, 2) if h100_val > 0 else "",
+                       size=9, bg=bg_row, border=thin_border,
+                       number_format='0.00' if h100_val > 0 else None)
+                    cs(ws1, current_row, 5, ot_str,
+                       size=9, bg=bg_row, border=thin_border,
+                       h_align="left", wrap=True)
+
+                    total_h50_sem  += h50_val
+                    total_h100_sem += h100_val
+
+                    current_row += 1
+
+                # Subtotal de la semana
+                ws1.row_dimensions[current_row].height = 14
+                cs(ws1, current_row, 1, "SUBTOTAL SEMANA", bold=True, size=9,
+                   bg=SUM_BLUE, border=thin_border, h_align="right")
+                cs(ws1, current_row, 2, "", size=9, bg=SUM_BLUE, border=thin_border)
+                cs(ws1, current_row, 3, round(total_h50_sem, 2) if total_h50_sem > 0 else 0,
+                   bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
+                cs(ws1, current_row, 4, round(total_h100_sem, 2) if total_h100_sem > 0 else 0,
+                   bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
+                cs(ws1, current_row, 5, "",
+                   size=9, bg=SUM_BLUE, border=thin_border)
+                current_row += 1
+
+                total_h50_tec  += total_h50_sem
+                total_h100_tec += total_h100_sem
+
+            # Total del técnico
+            ws1.row_dimensions[current_row].height = 16
+            cs(ws1, current_row, 1, f"TOTAL  {tecnico.upper()}", bold=True, size=10,
+               bg=TOTAL_GREEN, border=thick_border, h_align="left")
+            cs(ws1, current_row, 2, "", bold=True, size=10,
+               bg=TOTAL_GREEN, border=thick_border)
+            cs(ws1, current_row, 3, round(total_h50_tec, 2),
+               bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+            cs(ws1, current_row, 4, round(total_h100_tec, 2),
+               bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+            cs(ws1, current_row, 5, "",
+               bold=True, size=10, bg=TOTAL_GREEN, border=thick_border)
+            current_row += 2  # separador entre técnicos
+
+        # ══════════════════════════════════════════════════════════════════
+        # HOJA 2: "Resumen por Técnico"
+        # ══════════════════════════════════════════════════════════════════
+        ws2 = wb.create_sheet("Resumen por Técnico")
+
+        col_w2 = {1: 35, 2: 20, 3: 20, 4: 18, 5: 18}
+        for ci, w in col_w2.items():
+            ws2.column_dimensions[get_column_letter(ci)].width = w
+
+        ws2.row_dimensions[1].height = 22
+        ms(ws2, 1, 1, 1, 5,
+           value="RESUMEN DE HORAS EXTRAS POR TÉCNICO",
+           bold=True, size=13, color=WHITE, bg=FORTIDEX_BLUE,
+           h_align="center", border=thick_border)
+
+        ws2.row_dimensions[2].height = 15
+        ms(ws2, 2, 1, 2, 5,
+           value=f"Período: {fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}",
+           bold=False, size=10, color=FORTIDEX_BLUE, bg=HEADER_BLUE,
+           h_align="center", border=thin_border)
+
+        res_headers = ["TÉCNICO", "HORAS 50%", "HORAS 100%", "TOTAL HORAS", "VALOR TOTAL ($)"]
+        ws2.row_dimensions[3].height = 18
+        for ci, hdr in enumerate(res_headers, start=1):
+            cs(ws2, 3, ci, hdr, bold=True, size=10, color=WHITE,
+               bg=FORTIDEX_ORANGE, border=thin_border)
+
+        # Calcular resumen agrupado
+        def calc_resumen_tecnico(df_t):
+            rows = []
+            for tec, grp in df_t.groupby('RESPONSABLE'):
+                h50  = float(grp[grp['DOW'].isin([0,1,2,3,4])]['HORAS_EXTRAS'].sum())
+                h100 = float(grp[grp['DOW'].isin([5,6])]['HORAS_EXTRAS'].sum())
+                htot = h50 + h100
+                val  = float(grp['SALDO_HORAS_EXTRAS'].sum())
+                rows.append({'TECNICO': tec, 'H50': h50, 'H100': h100, 'HTOT': htot, 'VALOR': val})
+            return pd.DataFrame(rows).sort_values('HTOT', ascending=False)
+
+        resumen_df = calc_resumen_tecnico(df_valid)
+        gt_h50 = gt_h100 = gt_htot = gt_val = 0.0
+
+        for i_r, (_, row_r) in enumerate(resumen_df.iterrows()):
+            ri  = i_r + 4
+            bgr = WHITE if i_r % 2 == 0 else ROW_GRAY
+            ws2.row_dimensions[ri].height = 14
+
+            cs(ws2, ri, 1, str(row_r['TECNICO']), size=10, bg=bgr,
+               h_align="left", border=thin_border)
+            cs(ws2, ri, 2, round(row_r['H50'],  2), size=10, bg=bgr,
+               border=thin_border, number_format='0.00')
+            cs(ws2, ri, 3, round(row_r['H100'], 2), size=10, bg=bgr,
+               border=thin_border, number_format='0.00')
+            cs(ws2, ri, 4, round(row_r['HTOT'], 2), size=10, bg=bgr,
+               border=thin_border, number_format='0.00')
+            cs(ws2, ri, 5, round(row_r['VALOR'], 2), size=10, bg=bgr,
+               border=thin_border, number_format='"$"#,##0.00')
+
+            gt_h50  += row_r['H50']
+            gt_h100 += row_r['H100']
+            gt_htot += row_r['HTOT']
+            gt_val  += row_r['VALOR']
+
+        ri_tot = len(resumen_df) + 4
+        ws2.row_dimensions[ri_tot].height = 16
+        cs(ws2, ri_tot, 1, "TOTAL GENERAL", bold=True, size=10,
+           bg=TOTAL_GREEN, h_align="left", border=thick_border)
+        cs(ws2, ri_tot, 2, round(gt_h50,  2), bold=True, size=10,
+           bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+        cs(ws2, ri_tot, 3, round(gt_h100, 2), bold=True, size=10,
+           bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+        cs(ws2, ri_tot, 4, round(gt_htot, 2), bold=True, size=10,
+           bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+        cs(ws2, ri_tot, 5, round(gt_val,  2), bold=True, size=10,
+           bg=TOTAL_GREEN, border=thick_border, number_format='"$"#,##0.00')
+
+        # ══════════════════════════════════════════════════════════════════
+        # HOJA 3: "Detalle Registros"
+        # ══════════════════════════════════════════════════════════════════
+        ws3 = wb.create_sheet("Detalle Registros")
+
+        raw_cols = ['RESPONSABLE', 'OT_FMT', 'SEMANA_STR', 'INICIO_HORAS_EXTRAS',
+                    'FIN_HORAS_EXTRAS', 'HORAS_EXTRAS', 'SALDO_HORAS_EXTRAS']
+        raw_cols = [c for c in raw_cols if c in df_valid.columns]
+
+        raw_names = {
+            'RESPONSABLE': 'Técnico', 'OT_FMT': 'N° OT',
+            'SEMANA_STR': 'Semana',
+            'INICIO_HORAS_EXTRAS': 'Fecha/Hora Inicio',
+            'FIN_HORAS_EXTRAS': 'Fecha/Hora Fin',
+            'HORAS_EXTRAS': 'Horas Extras', 'SALDO_HORAS_EXTRAS': 'Valor ($)'
+        }
+        raw_widths = [35, 12, 12, 22, 22, 15, 15]
+
+        for ci, (rc, rw) in enumerate(zip(raw_cols, raw_widths), start=1):
+            ws3.column_dimensions[get_column_letter(ci)].width = rw
+            cs(ws3, 1, ci, raw_names.get(rc, rc),
+               bold=True, size=10, color=WHITE, bg=FORTIDEX_BLUE, border=thin_border)
+
+        for ri, (_, row_raw) in enumerate(df_valid[raw_cols].iterrows(), start=2):
+            bgr = WHITE if ri % 2 == 0 else ROW_GRAY
+            for ci, rc in enumerate(raw_cols, start=1):
+                val = row_raw[rc]
+                if rc in ('INICIO_HORAS_EXTRAS', 'FIN_HORAS_EXTRAS'):
+                    val = val.strftime('%d/%m/%Y %H:%M') if pd.notna(val) else ''
+                elif rc == 'HORAS_EXTRAS':
+                    val = round(float(val), 2) if pd.notna(val) else 0
+                elif rc == 'SALDO_HORAS_EXTRAS':
+                    val = round(float(val), 2) if pd.notna(val) else 0
+                cs(ws3, ri, ci, val, size=9, bg=bgr, border=thin_border,
+                   h_align="left" if ci == 1 else "center")
+
+        # Guardar y retornar bytes
+        output = io.BytesIO()
+        wb.save(output)
+        return output.getvalue()
+
+    except Exception as e:
+        st.error(f"Error al generar reporte Excel: {e}")
+        import traceback
+        st.error(traceback.format_exc())
+        return None
+
 
 # ============================================
 # INTERFAZ PRINCIPAL
@@ -1701,7 +1733,6 @@ def main():
     
     status_placeholder = st.empty()
     
-    # CARGA DE DATOS PRINCIPALES
     if st.session_state.data.empty:
         with status_placeholder.container():
             with st.spinner("Cargando datos desde Google Sheets..."):
@@ -1717,7 +1748,6 @@ def main():
         time.sleep(2)
         status_placeholder.empty()
     
-    # CARGA DE DATOS DE PERSONAL
     status_personal = st.empty()
     if st.session_state.personal_data.empty:
         with status_personal.container():
@@ -1733,7 +1763,6 @@ def main():
         time.sleep(1)
         status_personal.empty()
     
-    # CARGA DE DATOS DE HORAS EXTRAS
     status_overtime = st.empty()
     if st.session_state.overtime_data.empty:
         with status_overtime.container():
@@ -1749,7 +1778,6 @@ def main():
         time.sleep(1)
         status_overtime.empty()
     
-    # Sidebar
     st.sidebar.title("Opciones")
     
     if not st.session_state.data.empty and st.session_state.last_update:
@@ -1757,11 +1785,9 @@ def main():
         st.sidebar.markdown(f"`{st.session_state.last_update}`")
         st.sidebar.write(f"**Registros totales:** {len(st.session_state.data)}")
     
-    # Filtros
     st.sidebar.subheader("Filtros")
     
     if not st.session_state.data.empty:
-        # 1. FILTRO DE FECHA
         min_date = st.session_state.data['FECHA_DE_INICIO'].min().date()
         max_date = st.session_state.data['FECHA_DE_INICIO'].max().date()
         
@@ -1769,25 +1795,16 @@ def main():
         col1, col2 = st.sidebar.columns(2)
         with col1:
             fecha_inicio = st.date_input(
-                "Fecha Inicio",
-                value=min_date,
-                min_value=min_date,
-                max_value=max_date,
-                key="fecha_inicio"
+                "Fecha Inicio", value=min_date, min_value=min_date,
+                max_value=max_date, key="fecha_inicio"
             )
         with col2:
             fecha_fin = st.date_input(
-                "Fecha Fin",
-                value=max_date,
-                min_value=min_date,
-                max_value=max_date,
-                key="fecha_fin"
+                "Fecha Fin", value=max_date, min_value=min_date,
+                max_value=max_date, key="fecha_fin"
             )
         
-        # Calcular tiempo disponible
         tiempo_disponible, num_dias = calcular_tiempo_disponible(fecha_inicio, fecha_fin)
-        
-        # Mostrar información
         fecha_inicio_str = format_date_dd_mm_aaaa(fecha_inicio)
         fecha_fin_str = format_date_dd_mm_aaaa(fecha_fin)
         
@@ -1797,13 +1814,11 @@ def main():
         st.sidebar.write(f"**Días:** {num_dias}")
         st.sidebar.write(f"**Tiempo disponible:** {tiempo_disponible:,.0f} minutos")
         
-        # Mostrar cálculo detallado
         with st.sidebar.expander("📊 Ver cálculo de tiempo disponible"):
             st.write(f"**Fórmula:** Número de días × 24 horas × 60 minutos")
             st.write(f"**Cálculo:** {num_dias} días × 24 horas × 60 minutos = {tiempo_disponible:,.0f} minutos")
             st.write(f"**Ejemplo:** Para 27 días (2026-01-01 a 2026-01-27): 27 × 24 × 60 = 38,880 minutos")
         
-        # 2. FILTRO DE UBICACIÓN TÉCNICA
         if 'UBICACIÓN TÉCNICA' in st.session_state.data.columns:
             ubicaciones_unique = st.session_state.data['UBICACIÓN TÉCNICA'].dropna().unique().tolist()
             ubicaciones_str = [str(x) for x in ubicaciones_unique]
@@ -1813,19 +1828,16 @@ def main():
         
         ubicacion_filter = st.sidebar.selectbox("Ubicación Técnica", ubicaciones)
         
-        # 3. FILTRO DE EQUIPOS
         equipos_unique = st.session_state.data['EQUIPO'].unique().tolist()
         equipos_str = [str(x) for x in equipos_unique]
         equipos = ["Todos"] + sorted(equipos_str)
         equipo_filter = st.sidebar.selectbox("Equipo", equipos)
         
-        # 4. FILTRO DE CONJUNTOS
         conjuntos_unique = st.session_state.data['CONJUNTO'].unique().tolist()
         conjuntos_str = [str(x) for x in conjuntos_unique]
         conjuntos = ["Todos"] + sorted(conjuntos_str)
         conjunto_filter = st.sidebar.selectbox("Conjunto", conjuntos)
         
-        # 5. FILTRO DE TIPO DE MTTO
         if 'TIPO DE MTTO' in st.session_state.data.columns:
             tipos_mtto_unique = st.session_state.data['TIPO DE MTTO'].dropna().unique().tolist()
             tipos_mtto_str = [str(x) for x in tipos_mtto_unique]
@@ -1835,18 +1847,14 @@ def main():
         
         tipo_mtto_filter = st.sidebar.selectbox("Tipo de Mtto", tipos_mtto, key="tipo_mtto_filter")
         
-        # Aplicar filtros
         filtered_data = apply_filters(st.session_state.data, equipo_filter, conjunto_filter, 
                                       ubicacion_filter, tipo_mtto_filter, fecha_inicio, fecha_fin)
         
-        # Aplicar filtros a datos de horas extras
         filtered_overtime = apply_overtime_filters(st.session_state.overtime_data, fecha_inicio, fecha_fin)
         
-        # Aplicar limpieza a las columnas RESPONSABLE antes de procesar
         filtered_data = clean_responsable_column(filtered_data)
         filtered_overtime = clean_responsable_column(filtered_overtime)
         
-        # Mostrar información de estado
         st.sidebar.subheader("Estado")
         st.sidebar.write(f"**Registros filtrados:** {len(filtered_data)}")
         st.sidebar.write(f"**Horas extras registros:** {len(filtered_overtime)}")
@@ -1858,36 +1866,26 @@ def main():
             max_date_str = format_date_dd_mm_aaaa(max_date_filtered)
             st.sidebar.write(f"**Período datos:** {min_date_str} a {max_date_str}")
         
-        # CSS personalizado para pestañas más grandes
         st.markdown("""
         <style>
         .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
             font-size: 1.2rem;
             font-weight: 600;
         }
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 8px;
-        }
-        .stTabs [data-baseweb="tab-list"] button {
-            padding: 12px 24px;
-        }
+        .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+        .stTabs [data-baseweb="tab-list"] button { padding: 12px 24px; }
         </style>
         """, unsafe_allow_html=True)
         
-        # Pestañas - AGREGADA PESTAÑA PARA REPORTE DE HORAS EXTRAS
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
             "Planta", "TFS", "TR", "TFC", "Tipo de Mtto", "Confiabilidad", 
-            "Horas Personal Técnico", "Costos Horas Extras Personal Técnico", "Cumplimiento del Plan", "Reporte Horas Extras"
+            "Horas Personal Técnico", "Costos Horas Extras Personal Técnico",
+            "Cumplimiento del Plan", "Reporte Horas Extras"
         ])
         
-        # Calcular métricas con tiempo disponible dinámico
         metrics = calculate_metrics(filtered_data, fecha_inicio, fecha_fin, filtered_overtime)
         weekly_data = get_weekly_data(filtered_data, fecha_inicio, fecha_fin)
-        
-        # Calcular métricas de confiabilidad con tiempo disponible dinámico
         reliability_metrics = calculate_reliability_metrics(filtered_data, fecha_inicio, fecha_fin)
-        
-        # Obtener otros datos
         weekly_emergency_data = get_weekly_emergency_data(filtered_data)
         weekly_tech_data = get_weekly_technician_hours(filtered_data, filtered_overtime)
         accumulated_tech_data = get_accumulated_technician_hours(filtered_data, filtered_overtime)
@@ -1896,11 +1894,10 @@ def main():
         total_planificadas_mes_actual = get_total_planificadas_mes_actual(st.session_state.data, year=2026)
         ordenes_mes_actual = get_ordenes_mes_actual(st.session_state.data)
         
-        # Pestaña Planta
+        # ── TAB 1: Planta ──────────────────────────────────────────────────
         with tab1:
             st.header("🏭 Dashboard de Planta - Vista Consolidada")
             if not filtered_data.empty:
-                # SECCIÓN 1: INDICADORES PRINCIPALES CON VELOCÍMETROS
                 st.subheader("📊 Indicadores Clave de Desempeño")
                 
                 col1, col2, col3, col4 = st.columns(4)
@@ -1908,32 +1905,21 @@ def main():
                 with col1:
                     disponibilidad = metrics.get('disponibilidad', 0)
                     fig_dispo = go.Figure(go.Indicator(
-                        mode="gauge+number+delta",
-                        value=disponibilidad,
+                        mode="gauge+number+delta", value=disponibilidad,
                         domain={'x': [0, 1], 'y': [0, 1]},
                         title={'text': "Disponibilidad", 'font': {'size': 18}},
                         delta={'reference': 80, 'increasing': {'color': "green"}},
-                        gauge={
-                            'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
-                            'bar': {'color': "darkblue"},
-                            'bgcolor': "white",
-                            'borderwidth': 2,
-                            'bordercolor': "gray",
-                            'steps': [
-                                {'range': [0, 60], 'color': '#FF0000'},
-                                {'range': [60, 80], 'color': '#FFD700'},
-                                {'range': [80, 100], 'color': '#32CD32'}
-                            ],
-                            'threshold': {
-                                'line': {'color': "black", 'width': 4},
-                                'thickness': 0.75,
-                                'value': disponibilidad
-                            }
-                        }
+                        gauge={'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                               'bar': {'color': "darkblue"}, 'bgcolor': "white",
+                               'borderwidth': 2, 'bordercolor': "gray",
+                               'steps': [{'range': [0, 60], 'color': '#FF0000'},
+                                         {'range': [60, 80], 'color': '#FFD700'},
+                                         {'range': [80, 100], 'color': '#32CD32'}],
+                               'threshold': {'line': {'color': "black", 'width': 4},
+                                             'thickness': 0.75, 'value': disponibilidad}}
                     ))
                     fig_dispo.update_layout(height=300)
                     st.plotly_chart(fig_dispo, use_container_width=True)
-                    
                     if disponibilidad >= 80:
                         st.success("✅ Excelente")
                     elif disponibilidad >= 60:
@@ -1950,32 +1936,21 @@ def main():
                         cumplimiento = 0
                     
                     fig_cumplimiento = go.Figure(go.Indicator(
-                        mode="gauge+number+delta",
-                        value=cumplimiento,
+                        mode="gauge+number+delta", value=cumplimiento,
                         domain={'x': [0, 1], 'y': [0, 1]},
                         title={'text': "Cumplimiento Plan", 'font': {'size': 18}},
                         delta={'reference': 80, 'increasing': {'color': "green"}},
-                        gauge={
-                            'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
-                            'bar': {'color': "darkblue"},
-                            'bgcolor': "white",
-                            'borderwidth': 2,
-                            'bordercolor': "gray",
-                            'steps': [
-                                {'range': [0, 70], 'color': '#FF0000'},
-                                {'range': [70, 90], 'color': '#FFD700'},
-                                {'range': [90, 100], 'color': '#32CD32'}
-                            ],
-                            'threshold': {
-                                'line': {'color': "black", 'width': 4},
-                                'thickness': 0.75,
-                                'value': cumplimiento
-                            }
-                        }
+                        gauge={'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                               'bar': {'color': "darkblue"}, 'bgcolor': "white",
+                               'borderwidth': 2, 'bordercolor': "gray",
+                               'steps': [{'range': [0, 70], 'color': '#FF0000'},
+                                         {'range': [70, 90], 'color': '#FFD700'},
+                                         {'range': [90, 100], 'color': '#32CD32'}],
+                               'threshold': {'line': {'color': "black", 'width': 4},
+                                             'thickness': 0.75, 'value': cumplimiento}}
                     ))
                     fig_cumplimiento.update_layout(height=300)
                     st.plotly_chart(fig_cumplimiento, use_container_width=True)
-                    
                     if cumplimiento >= 90:
                         st.success("✅ Excelente")
                     elif cumplimiento >= 70:
@@ -1985,34 +1960,21 @@ def main():
                 
                 with col3:
                     mtbf = reliability_metrics.get('mtbf_emergency', 0) if reliability_metrics else 0
-                    mtbf_normalizado = mtbf
-                    
                     fig_mtbf = go.Figure(go.Indicator(
-                        mode="gauge+number",
-                        value=mtbf_normalizado,
+                        mode="gauge+number", value=mtbf,
                         domain={'x': [0, 1], 'y': [0, 1]},
                         title={'text': "MTBF (min)", 'font': {'size': 18}},
-                        gauge={
-                            'axis': {'range': [0, 10000], 'tickwidth': 1, 'tickcolor': "darkblue"},
-                            'bar': {'color': "darkblue"},
-                            'bgcolor': "white",
-                            'borderwidth': 2,
-                            'bordercolor': "gray",
-                            'steps': [
-                                {'range': [0, 3000], 'color': '#FF0000'},
-                                {'range': [3001, 6000], 'color': '#FFD700'},
-                                {'range': [6001, 10000], 'color': '#32CD32'}
-                            ],
-                            'threshold': {
-                                'line': {'color': "black", 'width': 4},
-                                'thickness': 0.75,
-                                'value': mtbf_normalizado
-                            }
-                        }
+                        gauge={'axis': {'range': [0, 10000], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                               'bar': {'color': "darkblue"}, 'bgcolor': "white",
+                               'borderwidth': 2, 'bordercolor': "gray",
+                               'steps': [{'range': [0, 3000], 'color': '#FF0000'},
+                                         {'range': [3001, 6000], 'color': '#FFD700'},
+                                         {'range': [6001, 10000], 'color': '#32CD32'}],
+                               'threshold': {'line': {'color': "black", 'width': 4},
+                                             'thickness': 0.75, 'value': mtbf}}
                     ))
                     fig_mtbf.update_layout(height=300)
                     st.plotly_chart(fig_mtbf, use_container_width=True)
-                    
                     if mtbf >= 6001:
                         st.success("✅ Excelente")
                     elif mtbf >= 3001:
@@ -2023,33 +1985,21 @@ def main():
                 with col4:
                     mttr = reliability_metrics.get('mttr_emergency', 0) if reliability_metrics else 0
                     mttr_normalizado = min(mttr, 500)
-                    
                     fig_mttr = go.Figure(go.Indicator(
-                        mode="gauge+number",
-                        value=mttr_normalizado,
+                        mode="gauge+number", value=mttr_normalizado,
                         domain={'x': [0, 1], 'y': [0, 1]},
                         title={'text': "MTTR (min)", 'font': {'size': 18}},
-                        gauge={
-                            'axis': {'range': [0, 500], 'tickwidth': 1, 'tickcolor': "darkblue"},
-                            'bar': {'color': "darkblue"},
-                            'bgcolor': "white",
-                            'borderwidth': 2,
-                            'bordercolor': "gray",
-                            'steps': [
-                                {'range': [0, 120], 'color': '#32CD32'},
-                                {'range': [120, 240], 'color': '#FFD700'},
-                                {'range': [240, 500], 'color': '#FF0000'}
-                            ],
-                            'threshold': {
-                                'line': {'color': "black", 'width': 4},
-                                'thickness': 0.75,
-                                'value': mttr_normalizado
-                            }
-                        }
+                        gauge={'axis': {'range': [0, 500], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                               'bar': {'color': "darkblue"}, 'bgcolor': "white",
+                               'borderwidth': 2, 'bordercolor': "gray",
+                               'steps': [{'range': [0, 120], 'color': '#32CD32'},
+                                         {'range': [120, 240], 'color': '#FFD700'},
+                                         {'range': [240, 500], 'color': '#FF0000'}],
+                               'threshold': {'line': {'color': "black", 'width': 4},
+                                             'thickness': 0.75, 'value': mttr_normalizado}}
                     ))
                     fig_mttr.update_layout(height=300)
                     st.plotly_chart(fig_mttr, use_container_width=True)
-                    
                     if mttr <= 120:
                         st.success("✅ Excelente")
                     elif mttr <= 240:
@@ -2057,11 +2007,8 @@ def main():
                     else:
                         st.error("❌ Crítico")
                 
-                # SECCIÓN 2: MÉTRICAS NUMÉRICAS BÁSICAS
                 st.subheader("📈 Métricas Operativas")
-                
                 col1, col2, col3, col4 = st.columns(4)
-                
                 with col1:
                     td = metrics.get('td', 0)
                     st.metric("Tiempo Disponible", f"{td:,.0f}", "minutos",
@@ -2071,21 +2018,14 @@ def main():
                 with col3:
                     st.metric("TFS Total", f"{metrics.get('tfs', 0):,.0f}", "minutos")
                 with col4:
-                    # Horas extras ahora desde DETALLE_HE
                     horas_extras = metrics.get('horas_extras_acumuladas', 0)
                     st.metric("Horas Extras Acum", f"{horas_extras/60:,.1f}", "horas")
                 
-                # =============================================
-                # SECCIÓN 3: GRÁFICOS DE DISPONIBILIDAD Y TFS
-                # =============================================
                 st.subheader("📊 Evolución de Indicadores")
-                
-                 # Fila 3: 2 gráficos en la primera fila
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     if not weekly_data.empty and 'DISPO_SEMANAL' in weekly_data.columns:
-                        # Gráfico de disponibilidad
                         try:
                             fig = px.line(weekly_data, x='SEMANA_STR', y='DISPO_SEMANAL', 
                                         title='📈 Disponibilidad por Semana',
@@ -2102,64 +2042,32 @@ def main():
                         st.info("No hay datos de disponibilidad semanal")
                 
                 with col2:
-                    # Gráfico alternativo si el de TFS/TR falla
                     if not weekly_data.empty:
                         try:
-                            # Intentar crear gráfico simple
                             fig = go.Figure()
-                            
-                            # Solo TFS si está disponible
                             if 'TFS_MIN' in weekly_data.columns:
-                                fig.add_trace(go.Bar(
-                                    x=weekly_data['SEMANA_STR'], 
-                                    y=weekly_data['TFS_MIN'], 
-                                    name='TFS',
-                                    marker_color='#FF6B6B'
-                                ))
-                            
-                            # Solo TR si está disponible
+                                fig.add_trace(go.Bar(x=weekly_data['SEMANA_STR'], y=weekly_data['TFS_MIN'],
+                                                    name='TFS', marker_color='#FF6B6B'))
                             if 'TR_MIN' in weekly_data.columns:
-                                fig.add_trace(go.Scatter(
-                                    x=weekly_data['SEMANA_STR'], 
-                                    y=weekly_data['TR_MIN'], 
-                                    name='TR',
-                                    mode='lines+markers',
-                                    line=dict(color='#FFD700', width=3)
-                                ))
-                            
-                            fig.update_layout(
-                                title='📊 TFS y TR por Semana',
-                                xaxis_title='Semana',
-                                yaxis_title='Minutos',
-                                hovermode='x unified'
-                            )
-                            
+                                fig.add_trace(go.Scatter(x=weekly_data['SEMANA_STR'], y=weekly_data['TR_MIN'],
+                                                        name='TR', mode='lines+markers',
+                                                        line=dict(color='#FFD700', width=3)))
+                            fig.update_layout(title='📊 TFS y TR por Semana',
+                                            xaxis_title='Semana', yaxis_title='Minutos',
+                                            hovermode='x unified')
                             st.plotly_chart(fig, use_container_width=True)
-                            
                         except Exception as e:
-                            # Si falla, mostrar gráfico más simple
                             st.error(f"Error en gráfico TFS/TR: {str(e)[:100]}")
-                            st.info("Mostrando gráfico alternativo...")
-                            
-                            # Gráfico alternativo solo de TFS
-                            if 'TFS_MIN' in weekly_data.columns:
-                                fig = px.bar(weekly_data, x='SEMANA_STR', y='TFS_MIN',
-                                            title='TFS por Semana',
-                                            labels={'SEMANA_STR': 'Semana', 'TFS_MIN': 'TFS (min)'})
-                                st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("No hay datos de TFS y TR semanal")
                 
-                # Fila 4: 2 gráficos más
                 col1, col2 = st.columns(2)
-                
                 with col1:
                     if not weekly_emergency_data.empty and 'NUM_ORDENES_EMERGENCIA' in weekly_emergency_data.columns:
                         fig = px.bar(weekly_emergency_data, x='SEMANA_STR', y='NUM_ORDENES_EMERGENCIA',
                                     title='🚨 Correctivos de Emergencia por Semana',
                                     labels={'SEMANA_STR': 'Semana', 'NUM_ORDENES_EMERGENCIA': 'N° de Órdenes'},
-                                    color='NUM_ORDENES_EMERGENCIA',
-                                    color_continuous_scale='Reds')
+                                    color='NUM_ORDENES_EMERGENCIA', color_continuous_scale='Reds')
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("No hay datos de correctivos de emergencia")
@@ -2168,25 +2076,18 @@ def main():
                     if not weekly_data.empty and 'TFC_MIN' in weekly_data.columns:
                         fig = go.Figure()
                         fig.add_trace(go.Scatter(x=weekly_data['SEMANA_STR'], y=weekly_data['TFC_MIN'],
-                                                name='TFC', mode='lines+markers', 
+                                                name='TFC', mode='lines+markers',
                                                 line=dict(color='#4ECDC4', width=3)))
                         fig.update_layout(title='🔧 TFC por Semana',
-                                        xaxis_title='Semana',
-                                        yaxis_title='TFC (min)')
+                                        xaxis_title='Semana', yaxis_title='TFC (min)')
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("No hay datos de TFC semanal")
                 
-                # =============================================
-                # SECCIÓN 4: ANÁLISIS POR EQUIPO Y CONJUNTO
-                # =============================================
                 st.subheader("🔍 Análisis por Equipo y Conjunto")
-                
-                # Fila 5: 4 gráficos pequeños
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    # TFS por Equipo (Top 5)
                     filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
                     if not filtered_afecta.empty and 'EQUIPO' in filtered_afecta.columns and 'TFS_MIN' in filtered_afecta.columns:
                         tfs_por_equipo = filtered_afecta.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
@@ -2200,7 +2101,6 @@ def main():
                             st.plotly_chart(fig, use_container_width=True)
                 
                 with col2:
-                    # TR por Conjunto (Top 5)
                     if not filtered_afecta.empty and 'CONJUNTO' in filtered_afecta.columns and 'TR_MIN' in filtered_afecta.columns:
                         tr_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TR_MIN'].sum().reset_index()
                         tr_por_conjunto = tr_por_conjunto.nlargest(5, 'TR_MIN')
@@ -2213,20 +2113,17 @@ def main():
                             st.plotly_chart(fig, use_container_width=True)
                 
                 with col3:
-                    # Distribución de Tipo de Mantenimiento
                     if 'TIPO DE MTTO' in filtered_data.columns:
                         tipo_mtto_counts = filtered_data['TIPO DE MTTO'].value_counts().reset_index()
                         tipo_mtto_counts.columns = ['TIPO_MTTO', 'COUNT']
                         if not tipo_mtto_counts.empty:
                             fig = px.pie(tipo_mtto_counts, values='COUNT', names='TIPO_MTTO',
-                                        title='📋 Distribución Tipo Mtto',
-                                        hole=0.4,
+                                        title='📋 Distribución Tipo Mtto', hole=0.4,
                                         color_discrete_sequence=px.colors.qualitative.Set3)
                             fig.update_traces(textposition='inside', textinfo='percent+label')
                             st.plotly_chart(fig, use_container_width=True)
                 
                 with col4:
-                    # Costos de Horas Extras por Técnico (Top 5) - AHORA DESDE DETALLE_HE
                     if not accumulated_costs.empty and 'COSTO_TOTAL' in accumulated_costs.columns:
                         top_tecnicos = accumulated_costs.nlargest(5, 'COSTO_TOTAL')
                         if not top_tecnicos.empty:
@@ -2237,39 +2134,27 @@ def main():
                             fig.update_layout(xaxis_tickangle=-45, showlegend=False)
                             st.plotly_chart(fig, use_container_width=True)
                 
-                # =============================================
-                # SECCIÓN 5: CUMPLIMIENTO DEL PLAN
-                # =============================================
                 st.subheader("📅 Cumplimiento del Plan 2026")
                 
                 if not monthly_plan_data.empty and 'ORDENES_CULMINADAS' in monthly_plan_data.columns:
-                    # Fila 6: 2 gráficos de cumplimiento
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        # Gráfico de barras apiladas de cumplimiento
                         fig = go.Figure()
                         fig.add_trace(go.Bar(x=monthly_plan_data['MES_NOMBRE'],
                                             y=monthly_plan_data['ORDENES_RETRASADAS'],
-                                            name='Retrasadas',
-                                            marker_color='#FFA500'))
+                                            name='Retrasadas', marker_color='#FFA500'))
                         fig.add_trace(go.Bar(x=monthly_plan_data['MES_NOMBRE'],
                                             y=monthly_plan_data['ORDENES_EN_EJECUCION'],
-                                            name='En Ejecución',
-                                            marker_color='#FFD700'))
+                                            name='En Ejecución', marker_color='#FFD700'))
                         fig.add_trace(go.Bar(x=monthly_plan_data['MES_NOMBRE'],
                                             y=monthly_plan_data['ORDENES_CULMINADAS'],
-                                            name='Culminadas',
-                                            marker_color='#32CD32'))
-                        fig.update_layout(barmode='stack',
-                                        title='📊 Estado de Órdenes por Mes',
-                                        xaxis_title='Mes',
-                                        yaxis_title='Número de Órdenes',
-                                        height=400)
+                                            name='Culminadas', marker_color='#32CD32'))
+                        fig.update_layout(barmode='stack', title='📊 Estado de Órdenes por Mes',
+                                        xaxis_title='Mes', yaxis_title='Número de Órdenes', height=400)
                         st.plotly_chart(fig, use_container_width=True)
                     
                     with col2:
-                        # Gráfico de línea de cumplimiento porcentual
                         if 'CUMPLIMIENTO_PCT' in monthly_plan_data.columns:
                             fig = px.line(monthly_plan_data, x='MES_NOMBRE', y='CUMPLIMIENTO_PCT',
                                         title='📈 Porcentaje de Cumplimiento',
@@ -2281,30 +2166,21 @@ def main():
                             fig.add_hrect(y0=0, y1=70, line_width=0, fillcolor="red", opacity=0.1)
                             fig.update_layout(height=400)
                             st.plotly_chart(fig, use_container_width=True)
-                # =============================================
-                # SECCIÓN 6: RESUMEN ESTADÍSTICO
-                # =============================================
-                st.subheader("📋 Resumen Estadístico")
                 
-                # Fila 7: 4 tarjetas de métricas
+                st.subheader("📋 Resumen Estadístico")
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
                     total_fallas = reliability_metrics.get('total_fallas_emergency', 0) if reliability_metrics else 0
                     st.metric("Total Fallas", f"{total_fallas}",
                             help="Número de correctivos de emergencia")
-                
                 with col2:
                     tr_horas = accumulated_tech_data['TR_HORAS'].sum() if not accumulated_tech_data.empty and 'TR_HORAS' in accumulated_tech_data.columns else 0
-                    st.metric("Horas Normales Técnicos", 
-                            f"{tr_horas:,.1f}", "horas")
-                
+                    st.metric("Horas Normales Técnicos", f"{tr_horas:,.1f}", "horas")
                 with col3:
                     costo_total = accumulated_costs['COSTO_TOTAL'].sum() if not accumulated_costs.empty and 'COSTO_TOTAL' in accumulated_costs.columns else 0
                     st.metric("Costo Total Horas Extras", f"${costo_total:,.2f}")
-                
                 with col4:
-                    # Eficiencia Global
                     td = metrics.get('td', 0)
                     to = metrics.get('to', 0)
                     eficiencia_global = (to / td * 100) if td > 0 else 0
@@ -2312,19 +2188,12 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Las otras pestañas (2-9) mantienen exactamente la misma estructura y funcionalidad
-        # Solo se han actualizado las funciones de cálculo que dependen de las horas extras
-
-        # Pestaña TFS - COMPLETA CON UBICACIÓN TÉCNICA
+        # ── TAB 2: TFS ────────────────────────────────────────────────────
         with tab2:
             st.header("Análisis de TFS")
-            
             if not filtered_data.empty:
-                # Filtrar solo registros que afectan producción
                 filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
-                
                 col1, col2 = st.columns(2)
-                
                 with col1:
                     if not weekly_data.empty:
                         fig = px.line(weekly_data, x='SEMANA_STR', y='TFS_MIN',
@@ -2334,11 +2203,9 @@ def main():
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("No hay datos semanales para mostrar")
-                
                 with col2:
                     tfs_por_equipo = filtered_afecta.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
                     tfs_por_equipo = tfs_por_equipo.sort_values('TFS_MIN', ascending=False).head(10)
-                    
                     if not tfs_por_equipo.empty:
                         fig = px.bar(tfs_por_equipo, x='EQUIPO', y='TFS_MIN',
                                     title='TFS por Equipo',
@@ -2348,79 +2215,51 @@ def main():
                     else:
                         st.info("No hay datos de TFS por equipo")
                 
-                # TFS por conjunto
                 tfs_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TFS_MIN'].sum().reset_index()
                 tfs_por_conjunto = tfs_por_conjunto.sort_values('TFS_MIN', ascending=False).head(10)
-                
                 if not tfs_por_conjunto.empty:
                     fig = px.bar(tfs_por_conjunto, x='CONJUNTO', y='TFS_MIN',
                                 title='TFS por Conjunto',
                                 labels={'CONJUNTO': 'Conjunto', 'TFS_MIN': 'TFS (min)'})
                     fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
                     st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("No hay datos de TFS por conjunto")
                 
-                # TFS por Ubicación Técnica (NUEVO)
                 if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
                     tfs_por_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA')['TFS_MIN'].sum().reset_index()
                     tfs_por_ubicacion = tfs_por_ubicacion.sort_values('TFS_MIN', ascending=False).head(10)
-                    
                     if not tfs_por_ubicacion.empty:
                         fig = px.bar(tfs_por_ubicacion, x='UBICACIÓN TÉCNICA', y='TFS_MIN',
                                     title='TFS por Ubicación Técnica',
                                     labels={'UBICACIÓN TÉCNICA': 'Ubicación Técnica', 'TFS_MIN': 'TFS (min)'})
                         fig.update_traces(marker_color=COLOR_PALETTE['pastel'][1])
                         st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No hay datos de TFS por ubicación técnica")
                 
-                # Tablas de resumen - AHORA CON 3 COLUMNAS
                 st.subheader("Resúmenes TFS")
                 col1, col2, col3 = st.columns(3)
-                
                 with col1:
                     st.write("**Resumen TFS por Equipo**")
-                    resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({
-                        'TFS_MIN': 'sum',
-                        'TR_MIN': 'sum',
-                        'TFC_MIN': 'sum'
-                    }).reset_index()
+                    resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({'TFS_MIN': 'sum', 'TR_MIN': 'sum', 'TFC_MIN': 'sum'}).reset_index()
                     st.dataframe(resumen_equipo, use_container_width=True)
-                
                 with col2:
                     st.write("**Resumen TFS por Conjunto**")
-                    resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({
-                        'TFS_MIN': 'sum',
-                        'TR_MIN': 'sum',
-                        'TFC_MIN': 'sum'
-                    }).reset_index()
+                    resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({'TFS_MIN': 'sum', 'TR_MIN': 'sum', 'TFC_MIN': 'sum'}).reset_index()
                     st.dataframe(resumen_conjunto.head(10), use_container_width=True)
-                
                 with col3:
                     st.write("**Resumen TFS por Ubicación Técnica**")
                     if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
-                        resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({
-                            'TFS_MIN': 'sum',
-                            'TR_MIN': 'sum',
-                            'TFC_MIN': 'sum'
-                        }).reset_index()
+                        resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({'TFS_MIN': 'sum', 'TR_MIN': 'sum', 'TFC_MIN': 'sum'}).reset_index()
                         st.dataframe(resumen_ubicacion.head(10), use_container_width=True)
                     else:
                         st.info("No hay datos de ubicación técnica")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña TR - COMPLETA CON UBICACIÓN TÉCNICA
+        # ── TAB 3: TR ─────────────────────────────────────────────────────
         with tab3:
             st.header("Análisis de TR")
-            
             if not filtered_data.empty:
-                # Filtrar solo registros que afectan producción
                 filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
-                
                 col1, col2 = st.columns(2)
-                
                 with col1:
                     if not weekly_data.empty:
                         fig = px.line(weekly_data, x='SEMANA_STR', y='TR_MIN',
@@ -2430,93 +2269,61 @@ def main():
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("No hay datos semanales para mostrar")
-                
                 with col2:
                     tr_por_equipo = filtered_afecta.groupby('EQUIPO')['TR_MIN'].sum().reset_index()
                     tr_por_equipo = tr_por_equipo.sort_values('TR_MIN', ascending=False).head(10)
-                    
                     if not tr_por_equipo.empty:
                         fig = px.bar(tr_por_equipo, x='EQUIPO', y='TR_MIN',
                                     title='TR por Equipo',
                                     labels={'EQUIPO': 'Equipo', 'TR_MIN': 'TR (min)'})
                         fig.update_traces(marker_color=COLOR_PALETTE['pastel'][2])
                         st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No hay datos de TR por equipo")
                 
-                # Pareto TR por conjunto
                 tr_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TR_MIN'].sum().reset_index()
                 tr_por_conjunto = tr_por_conjunto.sort_values('TR_MIN', ascending=False).head(15)
-                
                 if not tr_por_conjunto.empty:
                     fig = px.bar(tr_por_conjunto, x='CONJUNTO', y='TR_MIN',
                                 title='Pareto TR por Conjunto',
                                 labels={'CONJUNTO': 'Conjunto', 'TR_MIN': 'TR (min)'})
                     fig.update_traces(marker_color=COLOR_PALETTE['pastel'][2])
                     st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("No hay datos de TR por conjunto")
                 
-                # TR por Ubicación Técnica (NUEVO)
                 if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
                     tr_por_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA')['TR_MIN'].sum().reset_index()
                     tr_por_ubicacion = tr_por_ubicacion.sort_values('TR_MIN', ascending=False).head(10)
-                    
                     if not tr_por_ubicacion.empty:
                         fig = px.bar(tr_por_ubicacion, x='UBICACIÓN TÉCNICA', y='TR_MIN',
                                     title='TR por Ubicación Técnica',
                                     labels={'UBICACIÓN TÉCNICA': 'Ubicación Técnica', 'TR_MIN': 'TR (min)'})
                         fig.update_traces(marker_color=COLOR_PALETTE['pastel'][2])
                         st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No hay datos de TR por ubicación técnica")
                 
-                # Tablas de resumen - AHORA CON 3 COLUMNAS
                 st.subheader("Resúmenes TR")
                 col1, col2, col3 = st.columns(3)
-                
                 with col1:
                     st.write("**Resumen TR por Equipo**")
-                    resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({
-                        'TFS_MIN': 'sum',
-                        'TR_MIN': 'sum',
-                        'TFC_MIN': 'sum'
-                    }).reset_index()
+                    resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({'TFS_MIN': 'sum', 'TR_MIN': 'sum', 'TFC_MIN': 'sum'}).reset_index()
                     st.dataframe(resumen_equipo, use_container_width=True)
-                
                 with col2:
                     st.write("**Resumen TR por Conjunto**")
-                    resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({
-                        'TFS_MIN': 'sum',
-                        'TR_MIN': 'sum',
-                        'TFC_MIN': 'sum'
-                    }).reset_index()
+                    resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({'TFS_MIN': 'sum', 'TR_MIN': 'sum', 'TFC_MIN': 'sum'}).reset_index()
                     st.dataframe(resumen_conjunto.head(10), use_container_width=True)
-                
                 with col3:
                     st.write("**Resumen TR por Ubicación Técnica**")
                     if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
-                        resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({
-                            'TFS_MIN': 'sum',
-                            'TR_MIN': 'sum',
-                            'TFC_MIN': 'sum'
-                        }).reset_index()
+                        resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({'TFS_MIN': 'sum', 'TR_MIN': 'sum', 'TFC_MIN': 'sum'}).reset_index()
                         st.dataframe(resumen_ubicacion.head(10), use_container_width=True)
                     else:
                         st.info("No hay datos de ubicación técnica")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña TFC - COMPLETA CON UBICACIÓN TÉCNICA
+        # ── TAB 4: TFC ────────────────────────────────────────────────────
         with tab4:
             st.header("Análisis de TFC")
-            
             if not filtered_data.empty:
-                # Filtrar solo registros que afectan producción
                 filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
-                
                 col1, col2 = st.columns(2)
-                
                 with col1:
                     if not weekly_data.empty:
                         fig = px.line(weekly_data, x='SEMANA_STR', y='TFC_MIN',
@@ -2526,338 +2333,195 @@ def main():
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("No hay datos semanales para mostrar")
-                
                 with col2:
                     tfc_por_equipo = filtered_afecta.groupby('EQUIPO')['TFC_MIN'].sum().reset_index()
                     tfc_por_equipo = tfc_por_equipo.sort_values('TFC_MIN', ascending=False).head(10)
-                    
                     if not tfc_por_equipo.empty:
                         fig = px.bar(tfc_por_equipo, x='EQUIPO', y='TFC_MIN',
                                     title='TFC por Equipo',
                                     labels={'EQUIPO': 'Equipo', 'TFC_MIN': 'TFC (min)'})
                         fig.update_traces(marker_color=COLOR_PALETTE['pastel'][3])
                         st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No hay datos de TFC por equipo")
                 
-                # Pareto TFC por conjunto
                 tfc_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TFC_MIN'].sum().reset_index()
                 tfc_por_conjunto = tfc_por_conjunto.sort_values('TFC_MIN', ascending=False).head(15)
-                
                 if not tfc_por_conjunto.empty:
                     fig = px.bar(tfc_por_conjunto, x='CONJUNTO', y='TFC_MIN',
                                 title='Pareto TFC por Conjunto',
                                 labels={'CONJUNTO': 'Conjunto', 'TFC_MIN': 'TFC (min)'})
                     fig.update_traces(marker_color=COLOR_PALETTE['pastel'][3])
                     st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("No hay datos de TFC por conjunto")
                 
-                # TFC por Ubicación Técnica (NUEVO)
                 if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
                     tfc_por_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA')['TFC_MIN'].sum().reset_index()
                     tfc_por_ubicacion = tfc_por_ubicacion.sort_values('TFC_MIN', ascending=False).head(10)
-                    
                     if not tfc_por_ubicacion.empty:
                         fig = px.bar(tfc_por_ubicacion, x='UBICACIÓN TÉCNICA', y='TFC_MIN',
                                     title='TFC por Ubicación Técnica',
                                     labels={'UBICACIÓN TÉCNICA': 'Ubicación Técnica', 'TFC_MIN': 'TFC (min)'})
                         fig.update_traces(marker_color=COLOR_PALETTE['pastel'][3])
                         st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No hay datos de TFC por ubicación técnica")
                 
-                # Tablas de resumen - AHORA CON 3 COLUMNAS
                 st.subheader("Resúmenes TFC")
                 col1, col2, col3 = st.columns(3)
-                
                 with col1:
                     st.write("**Resumen TFC por Equipo**")
-                    resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({
-                        'TFS_MIN': 'sum',
-                        'TR_MIN': 'sum',
-                        'TFC_MIN': 'sum'
-                    }).reset_index()
+                    resumen_equipo = filtered_afecta.groupby('EQUIPO').agg({'TFS_MIN': 'sum', 'TR_MIN': 'sum', 'TFC_MIN': 'sum'}).reset_index()
                     st.dataframe(resumen_equipo, use_container_width=True)
-                
                 with col2:
                     st.write("**Resumen TFC por Conjunto**")
-                    resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({
-                        'TFS_MIN': 'sum',
-                        'TR_MIN': 'sum',
-                        'TFC_MIN': 'sum'
-                    }).reset_index()
+                    resumen_conjunto = filtered_afecta.groupby('CONJUNTO').agg({'TFS_MIN': 'sum', 'TR_MIN': 'sum', 'TFC_MIN': 'sum'}).reset_index()
                     st.dataframe(resumen_conjunto.head(10), use_container_width=True)
-                
                 with col3:
                     st.write("**Resumen TFC por Ubicación Técnica**")
                     if 'UBICACIÓN TÉCNICA' in filtered_afecta.columns:
-                        resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({
-                            'TFS_MIN': 'sum',
-                            'TR_MIN': 'sum',
-                            'TFC_MIN': 'sum'
-                        }).reset_index()
+                        resumen_ubicacion = filtered_afecta.groupby('UBICACIÓN TÉCNICA').agg({'TFS_MIN': 'sum', 'TR_MIN': 'sum', 'TFC_MIN': 'sum'}).reset_index()
                         st.dataframe(resumen_ubicacion.head(10), use_container_width=True)
                     else:
                         st.info("No hay datos de ubicación técnica")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña Tipo de Mantenimiento - CORREGIDA CON VALIDACIONES ROBUSTAS
+        # ── TAB 5: Tipo de Mantenimiento ──────────────────────────────────
         with tab5:
             st.header("Análisis por Tipo de Mantenimiento")
-            
-            # Verificación inicial de datos
             if not filtered_data.empty:
-                # Filtrar solo órdenes con estado 'CULMINADO'
                 if 'STATUS' in filtered_data.columns:
-                    # Normalizar estados: convertir a mayúsculas y quitar espacios, aceptar tanto 'CULMINADO' como 'CULMINADA'
                     filtered_data_mtto = filtered_data.copy()
                     filtered_data_mtto['STATUS_NORM'] = filtered_data_mtto['STATUS'].astype(str).str.upper().str.strip()
                     filtered_data_mtto.loc[filtered_data_mtto['STATUS_NORM'].str.contains('CULMINAD'), 'STATUS_NORM'] = 'CULMINADO'
                     filtered_data_mtto = filtered_data_mtto[filtered_data_mtto['STATUS_NORM'] == 'CULMINADO']
                 else:
-                    # Si no hay columna STATUS, mostramos advertencia y usamos todos los datos
                     st.warning("⚠️ No se encontró la columna 'STATUS'. Mostrando todos los datos sin filtrar por estado.")
                     filtered_data_mtto = filtered_data
                 
-                # CORRECCIÓN: Pasar los parámetros fecha_inicio y fecha_fin a la función calculate_metrics
                 metrics_mtto = calculate_metrics(filtered_data_mtto, fecha_inicio, fecha_fin, filtered_overtime)
                 
-                # Mostrar métricas
                 col1, col2, col3, col4, col5 = st.columns(5)
-                
                 with col1:
                     st.metric("Mantenimiento Preventivo", f"{metrics_mtto.get('mp_pct', 0):.1f}%")
-                
                 with col2:
                     st.metric("Mant. Basado en Condición", f"{metrics_mtto.get('mbc_pct', 0):.1f}%")
-                
                 with col3:
                     st.metric("Correctivo Programado", f"{metrics_mtto.get('mcp_pct', 0):.1f}%")
-                
                 with col4:
                     st.metric("Correctivo de Emergencia", f"{metrics_mtto.get('mce_pct', 0):.1f}%")
-                
                 with col5:
                     st.metric("Mejora de Sistema", f"{metrics_mtto.get('mms_pct', 0):.1f}%")
                 
-                # Gráficos - AMBOS USAN SOLO ÓRDENES 'CULMINADO'
                 col1, col2 = st.columns(2)
-                
                 with col1:
-                    # Tipo de mantenimiento por semana - BARRAS APILADAS
-                    # Verificar columnas necesarias
                     if 'FECHA_DE_INICIO' in filtered_data_mtto.columns and 'TIPO DE MTTO' in filtered_data_mtto.columns and 'TR_MIN' in filtered_data_mtto.columns:
                         df_weekly_mtto = filtered_data_mtto.copy()
                         df_weekly_mtto['SEMANA'] = df_weekly_mtto['FECHA_DE_INICIO'].dt.isocalendar().week
                         df_weekly_mtto['AÑO'] = df_weekly_mtto['FECHA_DE_INICIO'].dt.year
                         df_weekly_mtto['SEMANA_STR'] = df_weekly_mtto.apply(
-                            lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", 
-                            axis=1
+                            lambda x: f"{x['AÑO']}-S{x['SEMANA']:02d}", axis=1
                         )
-                        
-                        # Agrupar por semana y tipo de mantenimiento - TODOS LOS TIPOS DE MANTENIMIENTO
                         try:
                             tipo_mtto_semana = df_weekly_mtto.groupby(['SEMANA_STR', 'TIPO DE MTTO'])['TR_MIN'].sum().reset_index()
-                            
                             if not tipo_mtto_semana.empty:
-                                # MEJORA: Ordenar por año y semana numérica (cronológicamente)
-                                # Extraer año y número de semana para ordenar
                                 tipo_mtto_semana['AÑO_NUM'] = tipo_mtto_semana['SEMANA_STR'].str.extract(r'(\d{4})').astype(int)
                                 tipo_mtto_semana['SEMANA_NUM'] = tipo_mtto_semana['SEMANA_STR'].str.extract(r'-S(\d{1,2})').astype(int)
-                                
-                                # Ordenar primero por año, luego por semana (ascendente = más viejo a más actual)
                                 tipo_mtto_semana = tipo_mtto_semana.sort_values(['AÑO_NUM', 'SEMANA_NUM'])
-                                
-                                # Obtener el orden de semanas ya ordenadas cronológicamente
                                 semanas_ordenadas = tipo_mtto_semana['SEMANA_STR'].unique().tolist()
-                                
-                                # Obtener todos los tipos de mantenimiento únicos
                                 tipos_mtto_unicos = tipo_mtto_semana['TIPO DE MTTO'].unique()
-                                
-                                # Ordenar los tipos de mantenimiento
                                 tipos_ordenados = []
                                 for tipo in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PROGRAMADO', 'CORRECTIVO DE EMERGENCIA', 'MEJORA DE SISTEMA']:
                                     if tipo in tipos_mtto_unicos:
                                         tipos_ordenados.append(tipo)
-                                
-                                # Agregar cualquier otro tipo que no esté en la lista ordenada
                                 for tipo in tipos_mtto_unicos:
                                     if tipo not in tipos_ordenados:
                                         tipos_ordenados.append(tipo)
                                 
-                                # Crear gráfico de barras apiladas con colores específicos
-                                try:
-                                    fig = px.bar(tipo_mtto_semana, x='SEMANA_STR', y='TR_MIN', color='TIPO DE MTTO',
-                                                title='Tipo de Mantenimiento por Semana (Barras Apiladas) - Todos los Tipos',
-                                                labels={'SEMANA_STR': 'Semana', 'TR_MIN': 'Tiempo (min)'},
-                                                color_discrete_map=COLOR_PALETTE['tipo_mtto'],
-                                                category_orders={
-                                                    'SEMANA_STR': semanas_ordenadas,  # Orden cronológico
-                                                    'TIPO DE MTTO': tipos_ordenados   # Orden de tipos
-                                                })
-                                    
-                                    # Rotar etiquetas si hay muchas semanas para mejor legibilidad
-                                    if len(semanas_ordenadas) > 8:
-                                        fig.update_xaxes(tickangle=45)
-                                    
-                                    st.plotly_chart(fig, use_container_width=True)
-                                except Exception as e:
-                                    st.error(f"Error al crear gráfico de barras: {str(e)[:100]}")
-                            else:
-                                st.info("No hay datos de tipo de mantenimiento por semana para órdenes CULMINADAS")
+                                fig = px.bar(tipo_mtto_semana, x='SEMANA_STR', y='TR_MIN', color='TIPO DE MTTO',
+                                            title='Tipo de Mantenimiento por Semana (Barras Apiladas)',
+                                            labels={'SEMANA_STR': 'Semana', 'TR_MIN': 'Tiempo (min)'},
+                                            color_discrete_map=COLOR_PALETTE['tipo_mtto'],
+                                            category_orders={'SEMANA_STR': semanas_ordenadas, 'TIPO DE MTTO': tipos_ordenados})
+                                if len(semanas_ordenadas) > 8:
+                                    fig.update_xaxes(tickangle=45)
+                                st.plotly_chart(fig, use_container_width=True)
                         except Exception as e:
-                            st.error(f"Error al agrupar datos: {str(e)[:100]}")
-                    else:
-                        st.warning("Faltan columnas necesarias para el gráfico de barras (FECHA_DE_INICIO, TIPO DE MTTO, TR_MIN)")
+                            st.error(f"Error al crear gráfico de barras: {str(e)[:100]}")
+                
                 with col2:
-                    # NUEVO GRÁFICO DE TREEMAP - Distribución de Mantenimiento - Todos los Tipos
-                    # Verificar columnas necesarias
                     if 'TIPO DE MTTO' in filtered_data_mtto.columns and 'TR_MIN' in filtered_data_mtto.columns:
                         try:
-                            # Crear DataFrame agrupado solo con datos CULMINADOS
                             tipo_mtto_totals = filtered_data_mtto.groupby('TIPO DE MTTO')['TR_MIN'].sum().reset_index()
-                            
                             if not tipo_mtto_totals.empty:
-                                # Calcular porcentajes para mostrar en etiquetas
                                 total_minutos = tipo_mtto_totals['TR_MIN'].sum()
                                 tipo_mtto_totals['PORCENTAJE'] = (tipo_mtto_totals['TR_MIN'] / total_minutos * 100).round(1)
                                 tipo_mtto_totals['HORAS'] = (tipo_mtto_totals['TR_MIN'] / 60).round(1)
+                                tipo_mtto_totals['TEXTO_PORCENTAJE'] = tipo_mtto_totals['PORCENTAJE'].apply(lambda x: f"{x:.1f}%")
                                 
-                                # Ordenar los tipos de mantenimiento (MISMO ORDEN que el gráfico de barras)
-                                tipos_ordenados = ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PROGRAMADO', 
-                                                'CORRECTIVO DE EMERGENCIA', 'MEJORA DE SISTEMA']
-                                
-                                # Crear un mapeo de colores usando los mismos que el gráfico de barras
                                 color_map_extendido = COLOR_PALETTE['tipo_mtto'].copy()
-                                
-                                # Asignar colores a los tipos que no están en la paleta original
                                 colores_adicionales = ['#FFA500', '#800080', '#008000', '#FF69B4', '#00CED1']
-                                
-                                # Filtrar solo los tipos que existen en los datos
                                 tipos_existentes = tipo_mtto_totals['TIPO DE MTTO'].unique()
-                                tipos_ordenados_filtrados = [tipo for tipo in tipos_ordenados if tipo in tipos_existentes]
-                                
-                                # Agregar cualquier otro tipo que no esté en la lista ordenada
+                                tipos_ordenados_filtrados = [t for t in ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'CORRECTIVO PROGRAMADO', 'CORRECTIVO DE EMERGENCIA', 'MEJORA DE SISTEMA'] if t in tipos_existentes]
                                 for tipo in tipos_existentes:
                                     if tipo not in tipos_ordenados_filtrados:
                                         tipos_ordenados_filtrados.append(tipo)
-                                
-                                # Asignar colores a todos los tipos
                                 for i, tipo in enumerate(tipos_ordenados_filtrados):
                                     if tipo not in color_map_extendido:
                                         color_map_extendido[tipo] = colores_adicionales[i % len(colores_adicionales)]
                                 
-                                # Crear etiquetas con porcentajes para mostrar en el treemap
-                                tipo_mtto_totals['TEXTO_PORCENTAJE'] = tipo_mtto_totals['PORCENTAJE'].apply(lambda x: f"{x:.1f}%")
-                                
-                                # Crear gráfico de treemap
-                                fig = px.treemap(tipo_mtto_totals, 
-                                                path=['TIPO DE MTTO'], 
-                                                values='TR_MIN',
-                                                title='Distribución del Mantenimiento - Todos los Tipos (Órdenes CULMINADAS)',
-                                                color='TIPO DE MTTO',
-                                                color_discrete_map=color_map_extendido,
+                                fig = px.treemap(tipo_mtto_totals,
+                                                path=['TIPO DE MTTO'], values='TR_MIN',
+                                                title='Distribución del Mantenimiento (Órdenes CULMINADAS)',
+                                                color='TIPO DE MTTO', color_discrete_map=color_map_extendido,
                                                 hover_data={'TR_MIN': True, 'HORAS': True, 'PORCENTAJE': True},
-                                                labels={'TIPO DE MTTO': 'Tipo de Mantenimiento', 'TR_MIN': 'Minutos'},
                                                 custom_data=['TIPO DE MTTO', 'TR_MIN', 'HORAS', 'PORCENTAJE'])
-                                
-                                # Personalizar el treemap para mostrar porcentajes
                                 fig.update_traces(
                                     textinfo="label+text",
                                     text=tipo_mtto_totals['TEXTO_PORCENTAJE'],
                                     texttemplate="<b>%{label}</b><br>%{text}",
                                     textposition="middle center",
                                     textfont=dict(size=16, color='white'),
-                                    hovertemplate="<b>%{customdata[0]}</b><br>" +
-                                                "Minutos: %{value:.0f}<br>" +
-                                                "Horas: %{customdata[2]:.1f}<br>" +
-                                                "Porcentaje: %{customdata[3]:.1f}%<extra></extra>",
-                                    marker=dict(cornerradius=5)  # Esquinas redondeadas para mejor apariencia
+                                    hovertemplate="<b>%{customdata[0]}</b><br>Minutos: %{value:.0f}<br>Horas: %{customdata[2]:.1f}<br>Porcentaje: %{customdata[3]:.1f}%<extra></extra>",
+                                    marker=dict(cornerradius=5)
                                 )
-                                
-                                # Asegurar que los colores del texto sean visibles
-                                # Ajustar automáticamente el color del texto según el fondo
-                                fig.update_traces(
-                                    textfont_color=['white' if color_map_extendido.get(tipo, '#000000') in ['#00008B', '#FF0000', '#32CD32'] else 'black' 
-                                                for tipo in tipo_mtto_totals['TIPO DE MTTO']]
-                                )
-                                
-                                # Configurar el layout
-                                fig.update_layout(
-                                    margin=dict(t=50, l=25, r=25, b=25),
-                                    height=500,
-                                    uniformtext=dict(minsize=12, mode='hide')  # Controlar tamaño mínimo del texto
-                                )
-                                
+                                fig.update_layout(margin=dict(t=50, l=25, r=25, b=25), height=500)
                                 st.plotly_chart(fig, use_container_width=True)
-                            else:
-                                st.info("No hay datos de distribución de mantenimiento para órdenes CULMINADAS")
                         except Exception as e:
                             st.error(f"Error al crear gráfico de treemap: {str(e)[:200]}")
-                    else:
-                        st.warning("Faltan columnas necesarias para el gráfico de treemap (TIPO DE MTTO, TR_MIN)")
             else:
-                st.info("No hay datos para mostrar con los filtros seleccionados")        
+                st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña Confiabilidad - MODIFICADA con columnas específicas
+        # ── TAB 6: Confiabilidad ──────────────────────────────────────────
         with tab6:
             st.header("Indicadores de Confiabilidad")
-            
             if not filtered_data.empty:
-                # Mostrar métricas específicas para correctivos de emergencia
                 if reliability_metrics:
-                    # Usamos 6 columnas para incluir el nuevo indicador
                     col1, col2, col3, col4, col5, col6 = st.columns(6)
-                    
                     with col1:
-                        st.metric("Total Fallas", f"{reliability_metrics.get('total_fallas_emergency', 0):,.0f}",
-                                help="Número total de órdenes de correctivo de emergencia")
-                    
+                        st.metric("Total Fallas", f"{reliability_metrics.get('total_fallas_emergency', 0):,.0f}")
                     with col2:
-                        st.metric("Total Fallas con parada", 
-                                f"{reliability_metrics.get('total_fallas_emergency_con_parada', 0):,.0f}",
-                                help="Número de órdenes de correctivo de emergencia que detuvieron producción")
-                    
+                        st.metric("Total Fallas con parada", f"{reliability_metrics.get('total_fallas_emergency_con_parada', 0):,.0f}")
                     with col3:
-                        st.metric("MTBF", f"{reliability_metrics.get('mtbf_emergency', 0):,.1f}", "minutos",
-                                help="MTBF basado en correctivos de emergencia")
-                    
+                        st.metric("MTBF", f"{reliability_metrics.get('mtbf_emergency', 0):,.1f}", "minutos")
                     with col4:
-                        st.metric("MTTF", f"{reliability_metrics.get('mttf_emergency', 0):,.1f}", "minutos",
-                                help="MTTF basado en correctivos de emergencia")
-                    
+                        st.metric("MTTF", f"{reliability_metrics.get('mttf_emergency', 0):,.1f}", "minutos")
                     with col5:
-                        st.metric("MTTR", f"{reliability_metrics.get('mttr_emergency', 0):,.1f}", "minutos",
-                                help="MTTR basado en correctivos de emergencia")
-                    
+                        st.metric("MTTR", f"{reliability_metrics.get('mttr_emergency', 0):,.1f}", "minutos")
                     with col6:
                         mantenibilidad_pct = reliability_metrics.get('mantenibilidad_pct', 0)
-                        st.metric("Mantenibilidad", f"{mantenibilidad_pct:.1f}%",
-                                help="Mantenibilidad basada en correctivos de emergencia")
+                        st.metric("Mantenibilidad", f"{mantenibilidad_pct:.1f}%")
                 else:
                     st.info("No hay datos de correctivos de emergencia para calcular las métricas")
                 
-                # Gráficos
                 col1, col2 = st.columns(2)
-                
                 with col1:
-                    # Total de fallas por semana (correctivos de emergencia)
                     if not weekly_emergency_data.empty:
-                        # Crear gradiente de rojos: más fallas = rojo más oscuro, menos fallas = rojo más claro
                         fig = px.bar(weekly_emergency_data, x='SEMANA_STR', y='NUM_ORDENES_EMERGENCIA',
                                     title='Total de Fallas por Semana (Correctivos de Emergencia)',
                                     labels={'SEMANA_STR': 'Semana', 'NUM_ORDENES_EMERGENCIA': 'N° de Órdenes de Emergencia'},
-                                    color='NUM_ORDENES_EMERGENCIA',
-                                    color_continuous_scale='Reds')
+                                    color='NUM_ORDENES_EMERGENCIA', color_continuous_scale='Reds')
                         fig.update_layout(showlegend=False)
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("No hay datos semanales de correctivos de emergencia")
-                
                 with col2:
-                    # MTTR por semana (reemplaza Mantenibilidad por Semana)
                     if not weekly_emergency_data.empty:
                         fig = px.line(weekly_emergency_data, x='SEMANA_STR', y='MTTR_SEMANAL',
                                      title='MTTR por Semana (Correctivos de Emergencia)',
@@ -2868,336 +2532,148 @@ def main():
                     else:
                         st.info("No hay datos semanales para calcular MTTR")
                 
-                # Información adicional - Distribución por Equipo y Conjunto (Top 10) CON RANKING Y COLUMNAS ESPECÍFICAS
                 st.subheader("Distribución de Correctivos de Emergencia")
-                
-                # Filtrar correctivos de emergencia
                 emergency_data = filtered_data[filtered_data['TIPO DE MTTO'] == 'CORRECTIVO DE EMERGENCIA']
-                
                 if not emergency_data.empty:
                     col1, col2 = st.columns(2)
-                    
                     with col1:
                         st.write("**Distribución por Equipo (Top 10)**")
-                        # Agrupar por equipo y contar
                         emergencia_por_equipo = emergency_data.groupby('EQUIPO').size().reset_index(name='CANTIDAD')
-                        # Ordenar por cantidad descendente
                         emergencia_por_equipo = emergencia_por_equipo.sort_values('CANTIDAD', ascending=False).head(10)
-                        # Agregar columna de ranking (lugar)
                         emergencia_por_equipo = emergencia_por_equipo.reset_index(drop=True)
                         emergencia_por_equipo.insert(0, 'LUGAR', range(1, len(emergencia_por_equipo) + 1))
-                        # Formatear la columna LUGAR
                         emergencia_por_equipo['LUGAR'] = emergencia_por_equipo['LUGAR'].astype(str) + '°'
-                        # Renombrar columnas según especificación
-                        emergencia_por_equipo = emergencia_por_equipo.rename(columns={
-                            'EQUIPO': 'EQUIPO',
-                            'CANTIDAD': 'CANTIDAD DE FALLA'
-                        })
-                        # Seleccionar solo las columnas requeridas
+                        emergencia_por_equipo = emergencia_por_equipo.rename(columns={'CANTIDAD': 'CANTIDAD DE FALLA'})
                         emergencia_por_equipo = emergencia_por_equipo[['LUGAR', 'EQUIPO', 'CANTIDAD DE FALLA']]
                         st.dataframe(emergencia_por_equipo, use_container_width=True)
-                    
                     with col2:
                         st.write("**Distribución por Conjunto (Top 10)**")
-                        # Agrupar por conjunto y contar
                         emergencia_por_conjunto = emergency_data.groupby('CONJUNTO').size().reset_index(name='CANTIDAD')
-                        # Ordenar por cantidad descendente
                         emergencia_por_conjunto = emergencia_por_conjunto.sort_values('CANTIDAD', ascending=False).head(10)
-                        # Agregar columna de ranking (lugar)
                         emergencia_por_conjunto = emergencia_por_conjunto.reset_index(drop=True)
                         emergencia_por_conjunto.insert(0, 'LUGAR', range(1, len(emergencia_por_conjunto) + 1))
-                        # Formatear la columna LUGAR
                         emergencia_por_conjunto['LUGAR'] = emergencia_por_conjunto['LUGAR'].astype(str) + '°'
-                        # Renombrar columnas según especificación
-                        emergencia_por_conjunto = emergencia_por_conjunto.rename(columns={
-                            'CONJUNTO': 'CONJUNTO',
-                            'CANTIDAD': 'CANTIDAD DE FALLA'
-                        })
-                        # Seleccionar solo las columnas requeridas
+                        emergencia_por_conjunto = emergencia_por_conjunto.rename(columns={'CANTIDAD': 'CANTIDAD DE FALLA'})
                         emergencia_por_conjunto = emergencia_por_conjunto[['LUGAR', 'CONJUNTO', 'CANTIDAD DE FALLA']]
                         st.dataframe(emergencia_por_conjunto, use_container_width=True)
                 else:
                     st.info("No hay registros de correctivos de emergencia en el período seleccionado")
-                
             else:
-                st.info("No hay datos para mostrar con los filtros seleccionado")
+                st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # Pestaña Horas Personal Técnico - MODIFICADA PARA USAR DATOS DE HORAS EXTRAS DESDE DETALLE_HE
+        # ── TAB 7: Horas Personal Técnico ─────────────────────────────────
         with tab7:
             st.header("👷 Análisis de Horas del Personal Técnico")
-            
             if not filtered_data.empty:
-                # Verificar si existe la columna RESPONSABLE
                 if 'RESPONSABLE' not in filtered_data.columns:
                     st.warning("⚠️ La columna 'RESPONSABLE' no está presente en los datos.")
-                    st.info("Para ver el análisis de horas por técnico, asegúrate de que tu dataset incluya la columna 'RESPONSABLE'.")
                 else:
-                    # Crear DataFrame con técnicos separados - AHORA CADA TÉCNICO RECIBE HORAS COMPLETAS
                     data_with_responsible_separado = separar_tecnicos(filtered_data)
-                    
                     if data_with_responsible_separado.empty:
                         st.info("No hay datos con responsable asignado para mostrar.")
                     else:
-                        # Obtener datos semanales por técnico (ya separados en la función)
                         if not weekly_tech_data.empty:
-                            # Crear paleta de colores para técnicos
                             tecnicos_unicos = weekly_tech_data['RESPONSABLE'].unique()
                             colores_tecnicos = {}
-                            
-                            # Paleta de colores para técnicos (usando colores pastel)
                             colores_disponibles = COLOR_PALETTE['pastel'] + ['#FFA07A', '#20B2AA', '#778899', '#B0C4DE', '#FFB6C1', '#98FB98', '#DDA0DD', '#FFE4B5']
-                            
                             for i, tecnico in enumerate(tecnicos_unicos):
                                 colores_tecnicos[tecnico] = colores_disponibles[i % len(colores_disponibles)]
                             
-                            # --- SECCIÓN 1: HORAS NORMALES (TR_MIN) ---
                             st.subheader("📊 Horas Normales por Técnico")
-                            
-                            # Gráfico 1: Barras apiladas semanales de horas normales
                             col1, col2 = st.columns(2)
-                            
                             with col1:
-                                # Ordenar semanas
                                 semanas_ordenadas = sorted(weekly_tech_data['SEMANA_STR'].unique())
-                                
-                                fig = px.bar(weekly_tech_data, 
-                                            x='SEMANA_STR', 
-                                            y='TR_HORAS',
-                                            color='RESPONSABLE',
+                                fig = px.bar(weekly_tech_data, x='SEMANA_STR', y='TR_HORAS', color='RESPONSABLE',
                                             title='Horas Normales por Semana (por Técnico)',
                                             labels={'SEMANA_STR': 'Semana', 'TR_HORAS': 'Horas Normales', 'RESPONSABLE': 'Técnico'},
                                             color_discrete_map=colores_tecnicos,
                                             category_orders={'SEMANA_STR': semanas_ordenadas})
                                 fig.update_layout(barmode='stack')
                                 st.plotly_chart(fig, use_container_width=True)
-                            
                             with col2:
-                                # Gráfico de torta: Horas normales acumuladas por técnico
                                 horas_normales_acumuladas = data_with_responsible_separado.groupby('RESPONSABLE')['TR_MIN'].sum().reset_index()
                                 horas_normales_acumuladas['TR_HORAS'] = horas_normales_acumuladas['TR_MIN'] / 60
                                 horas_normales_acumuladas = horas_normales_acumuladas.sort_values('TR_HORAS', ascending=False)
-                                
                                 if not horas_normales_acumuladas.empty:
-                                    # Formatear etiquetas para mostrar técnico y horas
                                     horas_normales_acumuladas['LABEL'] = horas_normales_acumuladas.apply(
-                                        lambda x: f"{x['RESPONSABLE']}: {x['TR_HORAS']:.1f} horas", axis=1
-                                    )
-                                    
-                                    fig = px.pie(horas_normales_acumuladas, 
-                                                values='TR_HORAS', 
-                                                names='LABEL',
+                                        lambda x: f"{x['RESPONSABLE']}: {x['TR_HORAS']:.1f} horas", axis=1)
+                                    fig = px.pie(horas_normales_acumuladas, values='TR_HORAS', names='LABEL',
                                                 title='Distribución de Horas Normales Acumuladas',
-                                                color='RESPONSABLE',
-                                                color_discrete_map=colores_tecnicos)
-                                    
-                                    # Actualizar el hovertemplate para mostrar información adicional
-                                    fig.update_traces(
-                                        textposition='inside', 
-                                        textinfo='percent+label',
-                                        hovertemplate='<b>%{label}</b><br>' +
-                                                    'Horas: %{value:.1f}<br>' +
-                                                    'Porcentaje: %{percent}<extra></extra>'
-                                    )
+                                                color='RESPONSABLE', color_discrete_map=colores_tecnicos)
+                                    fig.update_traces(textposition='inside', textinfo='percent+label')
                                     st.plotly_chart(fig, use_container_width=True)
-                                else:
-                                    st.info("No hay datos de horas normales acumuladas para mostrar.")
                             
-                            # --- SECCIÓN 2: HORAS EXTRAS (H_EXTRA_MIN) DESDE DETALLE_HE ---
                             st.subheader("⏰ Horas Extras por Técnico (desde DETALLE_HE)")
-                            
-                            # Obtener datos semanales de horas extras desde DETALLE_HE
                             weekly_overtime = get_weekly_overtime_data(filtered_overtime)
-                            
                             if not weekly_overtime.empty:
-                                # Usar la misma paleta de colores que en la sección anterior
-                                # Gráfico 3: Barras apiladas semanales de horas extras
                                 col1, col2 = st.columns(2)
-                                
                                 with col1:
-                                    # Ordenar semanas
                                     semanas_ordenadas = sorted(weekly_overtime['SEMANA_STR'].unique())
-                                    
-                                    fig = px.bar(weekly_overtime, 
-                                                x='SEMANA_STR', 
-                                                y='H_EXTRA_HORAS',
-                                                color='RESPONSABLE',
+                                    fig = px.bar(weekly_overtime, x='SEMANA_STR', y='H_EXTRA_HORAS', color='RESPONSABLE',
                                                 title='Horas Extras por Semana (por Técnico)',
                                                 labels={'SEMANA_STR': 'Semana', 'H_EXTRA_HORAS': 'Horas Extras', 'RESPONSABLE': 'Técnico'},
                                                 color_discrete_map=colores_tecnicos,
                                                 category_orders={'SEMANA_STR': semanas_ordenadas})
                                     fig.update_layout(barmode='stack')
                                     st.plotly_chart(fig, use_container_width=True)
-                                
                                 with col2:
-                                    # Gráfico de torta: Horas extras acumuladas por técnico
                                     horas_extras_acumuladas = get_accumulated_overtime_data(filtered_overtime)
-                                    
                                     if not horas_extras_acumuladas.empty and 'H_EXTRA_HORAS' in horas_extras_acumuladas.columns:
                                         horas_extras_acumuladas = horas_extras_acumuladas[horas_extras_acumuladas['H_EXTRA_HORAS'] > 0]
                                         horas_extras_acumuladas = horas_extras_acumuladas.sort_values('H_EXTRA_HORAS', ascending=False)
-                                        
                                         if not horas_extras_acumuladas.empty:
-                                            # Formatear etiquetas para mostrar técnico y horas
                                             horas_extras_acumuladas['LABEL'] = horas_extras_acumuladas.apply(
-                                                lambda x: f"{x['RESPONSABLE']}: {x['H_EXTRA_HORAS']:.1f} horas", axis=1
-                                            )
-                                            
-                                            fig = px.pie(horas_extras_acumuladas, 
-                                                        values='H_EXTRA_HORAS', 
-                                                        names='LABEL',
+                                                lambda x: f"{x['RESPONSABLE']}: {x['H_EXTRA_HORAS']:.1f} horas", axis=1)
+                                            fig = px.pie(horas_extras_acumuladas, values='H_EXTRA_HORAS', names='LABEL',
                                                         title='Distribución de Horas Extras Acumuladas',
-                                                        color='RESPONSABLE',
-                                                        color_discrete_map=colores_tecnicos)
-                                            
-                                            # Actualizar el hovertemplate para mostrar información adicional
-                                            fig.update_traces(
-                                                textposition='inside', 
-                                                textinfo='percent+label',
-                                                hovertemplate='<b>%{label}</b><br>' +
-                                                            'Horas Extras: %{value:.1f}<br>' +
-                                                            'Porcentaje: %{percent}<extra></extra>'
-                                            )
+                                                        color='RESPONSABLE', color_discrete_map=colores_tecnicos)
+                                            fig.update_traces(textposition='inside', textinfo='percent+label')
                                             st.plotly_chart(fig, use_container_width=True)
-                                        else:
-                                            st.info("No hay datos de horas extras acumuladas para mostrar.")
-                                    else:
-                                        st.info("No hay datos de horas extras acumuladas para mostrar.")
                             else:
                                 st.info("No hay datos de horas extras por técnico para mostrar.")
-                            
-                            # --- EXPLICACIÓN DE LA MODIFICACIÓN ---
-                            with st.expander("ℹ️ Información sobre el cálculo de horas"):
-                                st.markdown("""
-                                ### 📊 **Modificación en el cálculo de horas por técnico**
-                                
-                                **Fuente de datos de horas extras:** 
-                                - Las horas extras ahora se obtienen de la hoja 'DETALLE_HE' del Google Sheet
-                                - Campos utilizados: 'RESPONSABLE_N', 'HORAS EXTRAS', 'SALDO HORAS EXTRAS'
-                                
-                                ### **Estructura de datos DETALLE_HE:**
-                                1. **RESPONSABLE_N:** Técnico que generó las horas extras
-                                2. **OT_ID:** Número de orden de trabajo
-                                3. **INICIO_HORAS_EXTRAS:** Fecha y hora de inicio
-                                4. **FIN_HORAS_EXTRAS:** Fecha y hora de fin
-                                5. **HORAS EXTRAS:** Cantidad de horas extras (en horas)
-                                6. **SALDO HORAS EXTRAS:** Valor en dólares por las horas extras
-                                
-                                ### **Conversión:**
-                                - Horas extras se convierten de horas a minutos para consistencia
-                                - Fórmula: H_EXTRA_MIN = HORAS_EXTRAS × 60
-                                
-                                ### **Filtros aplicados:**
-                                - Se aplican los mismos filtros de fecha que en los datos principales
-                                - Filtro por rango de fechas usando 'INICIO_HORAS_EXTRAS'
-                                """)
                         else:
                             st.info("No hay datos semanales por técnico para mostrar.")
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados.")
         
-        # Pestaña Costos Horas Extras Personal Técnico - MODIFICADA PARA USAR DATOS DE DETALLE_HE
+        # ── TAB 8: Costos Horas Extras ────────────────────────────────────
         with tab8:
             st.header("💰 Costos de Horas Extras del Personal Técnico (desde DETALLE_HE)")
-                       
             if not filtered_overtime.empty:
-                # Calcular costos (con la función mejorada)
                 weekly_costs, accumulated_costs, mensaje_calculo = calculate_overtime_costs_from_details(filtered_overtime, st.session_state.personal_data)
-                             
+                
                 if weekly_costs.empty or accumulated_costs.empty:
-                    # Mostrar información de depuración
                     with st.expander("🔍 Depuración - Ver detalles de los datos", expanded=True):
                         st.subheader("Registros de horas extras encontrados en DETALLE_HE")
-                        
                         if not filtered_overtime.empty:
                             st.write(f"**Total de registros de horas extras:** {len(filtered_overtime)}")
-                            
-                            # Mostrar columnas relevantes
                             columnas = ['RESPONSABLE', 'OT', 'INICIO_HORAS_EXTRAS', 'HORAS_EXTRAS', 'SALDO_HORAS_EXTRAS']
                             existing_columns = [col for col in columnas if col in filtered_overtime.columns]
-                            
-                            st.dataframe(
-                                filtered_overtime[existing_columns].head(20),
-                                use_container_width=True,
-                                column_config={
-                                    "HORAS_EXTRAS": st.column_config.NumberColumn(
-                                        "Horas Extras",
-                                        help="Horas extras trabajadas",
-                                        format="%.2f horas"
-                                    ),
-                                    "SALDO_HORAS_EXTRAS": st.column_config.NumberColumn(
-                                        "Valor en Dólares",
-                                        help="Valor en dólares de las horas extras",
-                                        format="$%.2f"
-                                    )
-                                }
-                            )
-                            
-                            # Mostrar resumen por técnico
-                            st.subheader("Resumen por técnico")
-                            resumen_tecnicos = filtered_overtime.groupby('RESPONSABLE').agg({
-                                'HORAS_EXTRAS': ['sum', 'count'],
-                                'SALDO_HORAS_EXTRAS': 'sum'
-                            }).reset_index()
-                            resumen_tecnicos.columns = ['Técnico', 'Total Horas', 'N° Registros', 'Total Dólares']
-                            st.dataframe(resumen_tecnicos, use_container_width=True)
+                            st.dataframe(filtered_overtime[existing_columns].head(20), use_container_width=True)
                         else:
                             st.warning("No se encontraron registros en DETALLE_HE para el período seleccionado")
-                    
-                    st.markdown("""
-                    ### 🔧 Posibles soluciones:
-                    
-                    1. **Verificar datos en DETALLE_HE:** 
-                       - Asegúrate de que la hoja 'DETALLE_HE' tenga datos para el período seleccionado
-                       - Verifica que las fechas en 'INICIO_HORAS_EXTRAS' estén dentro del rango seleccionado
-                    
-                    2. **Verificar estructura de la hoja DETALLE_HE:**
-                       - Debe contener las columnas: RESPONSABLE_N, OT_ID, INICIO_HORAS_EXTRAS, HORAS EXTRAS, SALDO HORAS EXTRAS
-                       - Las fechas deben estar en formato correcto
-                    
-                    3. **Verificar filtros aplicados:**
-                       - Asegúrate de que los filtros de fecha no estén excluyendo los registros de horas extras
-                    """)
-                    
                 else:
-                    # Mostrar información detallada de costos
                     show_detailed_costs_info(weekly_costs, accumulated_costs, st.session_state.personal_data)
                     
-                    # Obtener lista única de técnicos para crear paleta de colores
                     tecnicos_unicos = list(weekly_costs['TECNICO'].unique())
                     colores_tecnicos = {}
-                    
-                    # Paleta de colores para técnicos
                     colores_disponibles = COLOR_PALETTE['pastel'] + ['#FFA07A', '#20B2AA', '#778899', '#B0C4DE', '#FFB6C1', '#98FB98', '#DDA0DD', '#FFE4B5']
-                    
                     for i, tecnico in enumerate(tecnicos_unicos):
                         colores_tecnicos[tecnico] = colores_disponibles[i % len(colores_disponibles)]
                     
-                    # --- GRÁFICO 1: Barras apiladas de costos por semana ---
                     st.subheader("📈 Evolución de Costos por Semana")
-                    
                     col1, col2 = st.columns(2)
-                    
                     with col1:
-                        # Ordenar semanas
                         semanas_ordenadas = sorted(weekly_costs['SEMANA_STR'].unique())
-                        
-                        fig = px.bar(weekly_costs, 
-                                    x='SEMANA_STR', 
-                                    y='COSTO_TOTAL',
-                                    color='TECNICO',
+                        fig = px.bar(weekly_costs, x='SEMANA_STR', y='COSTO_TOTAL', color='TECNICO',
                                     title='Costos de Horas Extras por Semana (USD)',
                                     labels={'SEMANA_STR': 'Semana', 'COSTO_TOTAL': 'Costo Total (USD)', 'TECNICO': 'Técnico'},
                                     color_discrete_map=colores_tecnicos,
                                     category_orders={'SEMANA_STR': semanas_ordenadas})
                         fig.update_layout(barmode='stack')
                         st.plotly_chart(fig, use_container_width=True)
-                    
                     with col2:
-                        # --- GRÁFICO 2: Evolución de horas extras por semana ---
-                        fig = px.bar(weekly_costs, 
-                                    x='SEMANA_STR', 
-                                    y='H_EXTRA_HORAS',
-                                    color='TECNICO',
+                        fig = px.bar(weekly_costs, x='SEMANA_STR', y='H_EXTRA_HORAS', color='TECNICO',
                                     title='Horas Extras por Semana',
                                     labels={'SEMANA_STR': 'Semana', 'H_EXTRA_HORAS': 'Horas Extras', 'TECNICO': 'Técnico'},
                                     color_discrete_map=colores_tecnicos,
@@ -3205,335 +2681,120 @@ def main():
                         fig.update_layout(barmode='stack')
                         st.plotly_chart(fig, use_container_width=True)
                     
-                    # --- GRÁFICO 3: Análisis de distribución ---
                     st.subheader("📊 Análisis de Distribución")
-                    
                     col1, col2 = st.columns(2)
-                    
                     with col1:
-                        # Gráfico de torta de costos acumulados
                         pie_data = accumulated_costs.copy()
                         pie_data['PORCENTAJE'] = (pie_data['COSTO_TOTAL'] / pie_data['COSTO_TOTAL'].sum()) * 100
-                        
-                        # Formatear etiquetas para mostrar técnico, costo y porcentaje
                         pie_data['LABEL'] = pie_data.apply(
-                            lambda x: f"{x['TECNICO']}: ${x['COSTO_TOTAL']:,.2f} ({x['PORCENTAJE']:.1f}%)", 
-                            axis=1
-                        )
-                        
-                        fig = px.pie(pie_data, 
-                                    values='COSTO_TOTAL', 
-                                    names='LABEL',
+                            lambda x: f"{x['TECNICO']}: ${x['COSTO_TOTAL']:,.2f} ({x['PORCENTAJE']:.1f}%)", axis=1)
+                        fig = px.pie(pie_data, values='COSTO_TOTAL', names='LABEL',
                                     title='Distribución de Costos de Horas Extras',
-                                    color='TECNICO',
-                                    color_discrete_map=colores_tecnicos)
-                        
-                        fig.update_traces(
-                            textposition='inside', 
-                            textinfo='percent+label',
-                            hovertemplate='<b>%{label}</b><br>' +
-                                        'Costo Total: $%{value:,.2f}<br>' +
-                                        'Porcentaje: %{percent}<br>' +
-                                        'Horas Extras: %{customdata[0]:,.1f}<extra></extra>',
-                            customdata=pie_data[['H_EXTRA_HORAS']].values
-                        )
+                                    color='TECNICO', color_discrete_map=colores_tecnicos)
+                        fig.update_traces(textposition='inside', textinfo='percent+label')
                         st.plotly_chart(fig, use_container_width=True)
-                    
                     with col2:
-                        # Gráfico de barras horizontales para costos acumulados
                         fig = px.bar(accumulated_costs.sort_values('COSTO_TOTAL', ascending=True),
-                                    y='TECNICO',
-                                    x='COSTO_TOTAL',
+                                    y='TECNICO', x='COSTO_TOTAL',
                                     title='Costos Acumulados por Técnico',
                                     labels={'TECNICO': 'Técnico', 'COSTO_TOTAL': 'Costo Total (USD)'},
-                                    color='TECNICO',
-                                    color_discrete_map=colores_tecnicos,
-                                    orientation='h')
-                        
-                        # Añadir anotaciones con los valores
+                                    color='TECNICO', color_discrete_map=colores_tecnicos, orientation='h')
                         fig.update_traces(texttemplate='$%{x:,.2f}', textposition='outside')
                         st.plotly_chart(fig, use_container_width=True)
-                    
-                    # --- EXPLICACIÓN DEL CÁLCULO ---
-                    with st.expander("ℹ️ Información sobre el cálculo de costos"):
-                        st.markdown("""
-                        ### 📊 **Cálculo de Costos de Horas Extras desde DETALLE_HE**
-                        
-                        #### **Proceso de cálculo:**
-                        1. **Fuente de datos:** Hoja 'DETALLE_HE' del Google Sheet
-                        2. **Campos utilizados:**
-                           - RESPONSABLE_N: Nombre del técnico
-                           - HORAS EXTRAS: Cantidad de horas extras trabajadas (en horas)
-                           - SALDO HORAS EXTRAS: Valor en dólares de las horas extras
-                           - INICIO_HORAS_EXTRAS: Fecha y hora de inicio para agrupar por semana
-                        
-                        3. **Procesamiento:**
-                           - Conversión: Horas extras × 60 = minutos (para consistencia)
-                           - Agrupación por semana basada en INICIO_HORAS_EXTRAS
-                           - Suma de horas extras y valores en dólares por técnico y semana
-                        
-                        4. **Cálculo de costos:**
-                           - **Costo total:** Suma directa de 'SALDO_HORAS_EXTRAS' por técnico
-                           - **Horas extras:** Suma directa de 'HORAS_EXTRAS' por técnico
-                           - **No se requiere hoja PERSONAL** ya que el valor ya está calculado en DETALLE_HE
-                        
-                        #### **Ejemplo de datos en DETALLE_HE:**
-                        | Técnico | HORAS EXTRAS | SALDO HORAS EXTRAS |
-                        |---------|--------------|-------------------|
-                        | Juan Pérez | 2.5 | $25.00 |
-                        | María García | 3.0 | $36.00 |
-                        
-                        #### **Ventajas de este enfoque:**
-                        - **Precisión:** Los valores en dólares ya están calculados en la fuente
-                        - **Transparencia:** Se puede verificar cada registro individualmente
-                        - **Simplificación:** No requiere cruce con datos de personal
-                        - **Actualización:** Los cambios en costos se reflejan directamente en DETALLE_HE
-                        """)
-                        
-            elif filtered_overtime.empty:
-                st.info("No hay datos de horas extras para el período seleccionado.")
-                st.markdown("""
-                ### 🔍 **Posibles causas:**
-                1. **No hay registros en DETALLE_HE** para el rango de fechas seleccionado
-                2. **Las fechas en INICIO_HORAS_EXTRAS** están fuera del rango seleccionado
-                3. **La hoja DETALLE_HE** no se cargó correctamente
-                
-                ### **Solución:**
-                - Verifica que la hoja 'DETALLE_HE' exista en el Google Sheet
-                - Asegúrate de que tenga datos para el período seleccionado
-                - Revisa que las fechas en 'INICIO_HORAS_EXTRAS' estén en formato correcto
-                """)
             else:
-                st.warning("No se pudieron cargar los datos de horas extras. La pestaña de costos no está disponible.")
+                st.info("No hay datos de horas extras para el período seleccionado.")
         
-        # Pestaña Cumplimiento del Plan - VERSIÓN CORREGIDA CON OT COMO ENTERO Y SIN COLUMNA DE ÍNDICE
+        # ── TAB 9: Cumplimiento del Plan ──────────────────────────────────
         with tab9:
             st.header("📋 Cumplimiento del Plan de Mantenimiento 2026")
             
-            # 1. Texto explicativo desplegable (colapsado por defecto)
-            with st.expander("ℹ️ **Información sobre el cálculo del cumplimiento (CON CORRECCIONES)**", expanded=False):
+            with st.expander("ℹ️ **Información sobre el cálculo del cumplimiento**", expanded=False):
                 st.markdown("""
-                ### 📊 **Cálculo del Cumplimiento del Plan (CON CORRECCIONES)**
-                
+                ### 📊 **Cálculo del Cumplimiento del Plan**
                 #### **DEFINICIÓN CORREGIDA DE ÓRDENES RETRASADAS:**
-                ```
-                ÓRDENES RETRASADAS = 
-                - Estado: 'PENDIENTE' (no 'CULMINADO' ni 'EN PROCESO')
-                - Fecha de inicio < hoy
-                - Fecha de fin < hoy
-                ```
-                
-                #### **NOTA IMPORTANTE:**
-                - Si una orden tiene estado 'CULMINADO', NO PUEDE estar retrasada
-                - Si una orden tiene estado 'EN PROCESO', NO PUEDE estar retrasada
-                - Solo órdenes con estado 'PENDIENTE' pueden clasificarse como retrasadas
+                - Estado: 'PENDIENTE', Fecha de inicio < hoy, Fecha de fin < hoy
                 """)
             
-            # 2. Indicador del mes actual (nuevo)
-            st.subheader("📅 Indicador del Mes Actual (Solo Información)")
-            
-            # Obtener el mes y año actual
+            st.subheader("📅 Indicador del Mes Actual")
             mes_actual = datetime.now().month
             año_actual = datetime.now().year
-            
-            # Mostrar indicador del mes actual
             col_actual1, col_actual2 = st.columns(2)
             with col_actual1:
-                st.metric("Total Planificadas del Mes", 
-                        f"{total_planificadas_mes_actual}",
-                        help="Número total de órdenes planificadas para el mes actual (sin filtrar por fecha de corte). Solo información.")
+                st.metric("Total Planificadas del Mes", f"{total_planificadas_mes_actual}")
             with col_actual2:
-                # Mostrar el mes y año
                 nombre_mes = monthly_plan_data[monthly_plan_data['MES'] == mes_actual]['MES_NOMBRE'].iloc[0] if not monthly_plan_data[monthly_plan_data['MES'] == mes_actual].empty else mes_actual
                 st.metric("Mes de referencia", f"{nombre_mes} {año_actual}")
             
-            # Obtener datos de cumplimiento del plan para 2026 CON LA MEJORA DE FILTRO DE FECHA
             if not monthly_plan_data.empty:
-                # Calcular indicadores generales del plan
                 total_planificadas = float(monthly_plan_data['TOTAL_PLANIFICADAS'].sum())
                 total_culminadas = float(monthly_plan_data['ORDENES_CULMINADAS'].sum())
                 total_en_ejecucion = float(monthly_plan_data['ORDENES_EN_EJECUCION'].sum())
                 total_retrasadas = float(monthly_plan_data['ORDENES_RETRASADAS'].sum())
-                # Verificar que la suma de categorías sea igual al total planificado
-                suma_categorias = total_culminadas + total_en_ejecucion + total_retrasadas 
-                
-                # Calcular porcentaje de cumplimiento
                 cumplimiento_general = (total_culminadas / total_planificadas * 100) if total_planificadas > 0 else 0
                 
-                # 3. Evaluar estado del Plan basado en el cumplimiento
                 if cumplimiento_general >= 90:
-                    estado_plan = "🟢 Excelente"
-                    estado_color = "green"
-                    estado_desc = "El plan se está cumpliendo de manera excelente (>90%)"
+                    estado_plan = "🟢 Excelente"; estado_color = "green"
                 elif cumplimiento_general >= 70:
-                    estado_plan = "🟡 Bueno"
-                    estado_color = "orange"
-                    estado_desc = "El plan se está cumpliendo adecuadamente (70-90%)"
+                    estado_plan = "🟡 Bueno"; estado_color = "orange"
                 elif cumplimiento_general >= 50:
-                    estado_plan = "🟠 Regular"
-                    estado_color = "#FF8C00"  # naranja oscuro
-                    estado_desc = "El plan necesita atención (50-70%)"
+                    estado_plan = "🟠 Regular"; estado_color = "#FF8C00"
                 else:
-                    estado_plan = "🔴 Crítico"
-                    estado_color = "red"
-                    estado_desc = "El plan requiere intervención inmediata (<50%)"
+                    estado_plan = "🔴 Crítico"; estado_color = "red"
                 
-                # Mostrar indicadores generales (6 columnas)
                 st.subheader("📊 Indicadores Generales del Plan 2026")
-                
-                # Información sobre la mejora aplicada
-                fecha_actual = datetime.now().date()
-                fecha_corte = fecha_actual - timedelta(days=1)
-                
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
-                
                 with col1:
-                    st.metric("Total Planificadas hasta ayer", f"{total_planificadas}", 
-                            help="Órdenes de tipo PREVENTIVO, BASADO EN CONDICIÓN y MEJORA DE SISTEMA para 2026 (hasta fecha de corte)")
-                
+                    st.metric("Total Planificadas hasta ayer", f"{total_planificadas}")
                 with col2:
-                    st.metric("Órdenes Culminadas", f"{total_culminadas}",
-                            help="Órdenes con estado 'CULMINADO' del plan para 2026 (hasta fecha de corte)")
-                
+                    st.metric("Órdenes Culminadas", f"{total_culminadas}")
                 with col3:
-                    st.metric("Órdenes en Ejecución", f"{total_en_ejecucion}",
-                            help="Órdenes con estado 'EN PROCESO' del plan para 2026 (hasta fecha de corte)")
-                
+                    st.metric("Órdenes en Ejecución", f"{total_en_ejecucion}")
                 with col4:
-                    st.metric("Órdenes Retrasadas", f"{total_retrasadas}",
-                            help="Órdenes PENDIENTES con fecha_inicio < hoy y fecha_final < hoy (hasta fecha de corte)")
-                
+                    st.metric("Órdenes Retrasadas", f"{total_retrasadas}")
                 with col5:
-                    st.metric("Cumplimiento", f"{cumplimiento_general:.1f}%",
-                            delta=None, delta_color="normal")
-                
+                    st.metric("Cumplimiento", f"{cumplimiento_general:.1f}%")
                 with col6:
-                    # Estado del Plan
                     st.markdown(f"**Estado del Plan**")
                     st.markdown(f"<h3 style='color:{estado_color};'>{estado_plan}</h3>", unsafe_allow_html=True)
-                    st.caption(estado_desc)
                 
-                # Información de verificación
-                if abs(float(suma_categorias) - float(total_planificadas)) > 0.1:  # Tolerancia pequeña para decimales
-                    st.warning(f"⚠️ **Nota:** La suma de categorías ({suma_categorias}) no coincide exactamente con el total planificado hasta ayer ({total_planificadas}). Esto puede deberse a órdenes con estados diferentes a los definidos.")
-                # Gráfico 1: Distribución mensual (CON 4 CATEGORÍAS)
-                st.subheader("📊 Distribución de Órdenes por Mes")
-                
-                # Crear gráfico de barras apiladas con las 4 categorías
                 fig1 = go.Figure()
+                fig1.add_trace(go.Bar(x=monthly_plan_data['MES_NOMBRE'], y=monthly_plan_data['ORDENES_RETRASADAS'],
+                                     name='Retrasadas', marker_color=COLOR_PALETTE['estado_orden']['RETRASADAS'],
+                                     text=monthly_plan_data['ORDENES_RETRASADAS'], textposition='inside',
+                                     textfont=dict(size=15, color='black')))
+                fig1.add_trace(go.Bar(x=monthly_plan_data['MES_NOMBRE'], y=monthly_plan_data['ORDENES_EN_EJECUCION'],
+                                     name='En Ejecución', marker_color=COLOR_PALETTE['estado_orden']['EN EJECUCIÓN'],
+                                     text=monthly_plan_data['ORDENES_EN_EJECUCION'], textposition='inside',
+                                     textfont=dict(size=15, color='black')))
+                fig1.add_trace(go.Bar(x=monthly_plan_data['MES_NOMBRE'], y=monthly_plan_data['ORDENES_CULMINADAS'],
+                                     name='Culminadas', marker_color=COLOR_PALETTE['estado_orden']['CULMINADAS'],
+                                     text=monthly_plan_data['ORDENES_CULMINADAS'], textposition='inside',
+                                     textfont=dict(size=15, color='black')))
+                fig1.add_trace(go.Scatter(x=monthly_plan_data['MES_NOMBRE'], y=monthly_plan_data['TOTAL_PLANIFICADAS'],
+                                         name='Total Planificado hasta ayer', mode='lines+markers',
+                                         line=dict(color=COLOR_PALETTE['estado_orden']['TOTAL_PLANIFICADAS'], width=3, dash='dash')))
                 
-                # Barras apiladas con las nuevas definiciones (orden de apilamiento: de abajo hacia arriba)
-                # 1. Órdenes proyectadas (base) - solo si existen
-            
-                # 2. Órdenes retrasadas
-                fig1.add_trace(go.Bar(
-                    x=monthly_plan_data['MES_NOMBRE'],
-                    y=monthly_plan_data['ORDENES_RETRASADAS'],
-                    name='Retrasadas',
-                    marker_color=COLOR_PALETTE['estado_orden']['RETRASADAS'],  # Naranja
-                    text=monthly_plan_data['ORDENES_RETRASADAS'],
-                    textposition='inside',
-                    textfont=dict(size=15, color='black'),
-                    hovertemplate='<b>%{x}</b><br>Retrasadas: %{y}<extra></extra>'
-                ))
-                
-                # 3. Órdenes en ejecución
-                fig1.add_trace(go.Bar(
-                    x=monthly_plan_data['MES_NOMBRE'],
-                    y=monthly_plan_data['ORDENES_EN_EJECUCION'],
-                    name='En Ejecución',
-                    marker_color=COLOR_PALETTE['estado_orden']['EN EJECUCIÓN'],  # Amarillo
-                    text=monthly_plan_data['ORDENES_EN_EJECUCION'],
-                    textposition='inside',
-                    textfont=dict(size=15, color='black'),
-                    hovertemplate='<b>%{x}</b><br>En Ejecución: %{y}<extra></extra>'
-                ))
-                
-                # 4. Órdenes culminadas (arriba del todo)
-                fig1.add_trace(go.Bar(
-                    x=monthly_plan_data['MES_NOMBRE'],
-                    y=monthly_plan_data['ORDENES_CULMINADAS'],
-                    name='Culminadas',
-                    marker_color=COLOR_PALETTE['estado_orden']['CULMINADAS'],  # Verde
-                    text=monthly_plan_data['ORDENES_CULMINADAS'],
-                    textposition='inside',
-                    textfont=dict(size=15, color='black'),
-                    hovertemplate='<b>%{x}</b><br>Culminadas: %{y}<extra></extra>'
-                ))
-                
-                # Añadir línea para el total planificado hasta ayer
-                fig1.add_trace(go.Scatter(
-                    x=monthly_plan_data['MES_NOMBRE'],
-                    y=monthly_plan_data['TOTAL_PLANIFICADAS'],
-                    name='Total Planificado hasta ayer',
-                    mode='lines+markers',
-                    line=dict(color=COLOR_PALETTE['estado_orden']['TOTAL_PLANIFICADAS'], width=3, dash='dash'),
-                    marker=dict(size=8, color=COLOR_PALETTE['estado_orden']['TOTAL_PLANIFICADAS']),
-                    hovertemplate='<b>%{x}</b><br>Total Planificado hasta ayer: %{y}<extra></extra>'
-                ))
-                
-                # Añadir anotaciones de porcentaje de cumplimiento
                 for i, row in monthly_plan_data.iterrows():
                     if row['TOTAL_PLANIFICADAS'] > 0:
                         cumplimiento_mensual = row['CUMPLIMIENTO_PCT']
-                        
-                        # Determinar color del texto según cumplimiento
-                        if cumplimiento_mensual >= 90:
-                            color_texto = 'green'
-                        elif cumplimiento_mensual >= 80:
-                            color_texto = 'orange'
-                        elif cumplimiento_mensual >= 70:
-                            color_texto = '#FF8C00'
-                        else:
-                            color_texto = 'red'
-                        
-                        # Anotación para cumplimiento
-                        fig1.add_annotation(
-                            x=row['MES_NOMBRE'],
-                            y=row['TOTAL_PLANIFICADAS'] + (row['TOTAL_PLANIFICADAS'] * 0.05),
-                            text=f"{cumplimiento_mensual:.0f}%",
-                            showarrow=False,
-                            font=dict(size=20, color=color_texto, weight='bold'),
-                            yshift=5
-                        )
+                        color_texto = 'green' if cumplimiento_mensual >= 90 else ('orange' if cumplimiento_mensual >= 80 else ('red' if cumplimiento_mensual < 70 else '#FF8C00'))
+                        fig1.add_annotation(x=row['MES_NOMBRE'], y=row['TOTAL_PLANIFICADAS'] + (row['TOTAL_PLANIFICADAS'] * 0.05),
+                                           text=f"{cumplimiento_mensual:.0f}%", showarrow=False,
+                                           font=dict(size=20, color=color_texto, weight='bold'), yshift=5)
                 
-                fig1.update_layout(
-                    title='Distribución de Órdenes por Mes (CON CORRECCIONES)',
-                    xaxis_title='Mes',
-                    yaxis_title='Número de Órdenes',
-                    barmode='stack',
-                    hovermode='x unified',
-                    height=500,
-                    legend=dict(
-                        orientation="h",
-                        yanchor="bottom",
-                        y=1.02,
-                        xanchor="right",
-                        x=1
-                    )
-                )
-                
+                fig1.update_layout(title='Distribución de Órdenes por Mes', xaxis_title='Mes',
+                                  yaxis_title='Número de Órdenes', barmode='stack', hovermode='x unified', height=500,
+                                  legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 st.plotly_chart(fig1, use_container_width=True)
                 
-                # =============================================
-                # TABLA DE ÓRDENES DEL MES ACTUAL - CORREGIDA: OT COMO ENTERO Y SIN COLUMNA DE ÍNDICE
-                # =============================================
                 st.subheader("📋 Tabla de Órdenes del Mes Actual")
-                
                 if not ordenes_mes_actual.empty:
-                                      
-                    # Mostrar resumen por categoría
                     resumen_categorias = ordenes_mes_actual['CATEGORIA'].value_counts().reset_index()
                     resumen_categorias.columns = ['Categoría', 'Cantidad']
-                    
-                    # Ordenar según el orden especificado
                     orden_categorias = ['RETRASADA', 'EN EJECUCIÓN', 'POR EJECUTAR EN ENERO', 'EJECUTADA']
-                    resumen_categorias['Categoría'] = pd.Categorical(resumen_categorias['Categoría'], 
-                                                                    categories=orden_categorias, 
-                                                                    ordered=True)
+                    resumen_categorias['Categoría'] = pd.Categorical(resumen_categorias['Categoría'], categories=orden_categorias, ordered=True)
                     resumen_categorias = resumen_categorias.sort_values('Categoría')
                     
-                    # Mostrar resumen
                     cols_resumen = st.columns(4)
                     for idx, (_, row) in enumerate(resumen_categorias.iterrows()):
                         with cols_resumen[idx % 4]:
@@ -3546,660 +2807,195 @@ def main():
                             elif row['Categoría'] == 'EJECUTADA':
                                 st.metric("Órdenes Ejecutadas", f"{row['Cantidad']}")
                     
-                    # Mostrar tabla completa con formato condicional
-                    st.write(f"**Total de órdenes del mes actual:** {len(ordenes_mes_actual)}")
-                    
-                    # Buscar la columna de número de orden - CORREGIDO
                     columna_ot = None
-                    posibles_nombres = ['OT', 'N° DE OT', 'N° DE ORDEN', 'NUMERO DE ORDEN', 'N° OT', 'ORDEN']
-                    
-                    for nombre in posibles_nombres:
+                    for nombre in ['OT', 'N° DE OT', 'N° DE ORDEN', 'NUMERO DE ORDEN', 'N° OT', 'ORDEN']:
                         if nombre in ordenes_mes_actual.columns:
                             columna_ot = nombre
                             break
                     
                     if columna_ot:
-                                               
-                        # Lista de columnas solicitadas (con el nombre real de la columna OT)
                         columnas_solicitadas = [columna_ot, 'TIPO DE MTTO', 'EQUIPO', 'FECHA DE INICIO', 'FECHA DE FIN', 'ESTADO', 'CATEGORIA']
-                        
-                        # Verificar qué columnas existen en el DataFrame
                         columnas_existentes = [col for col in columnas_solicitadas if col in ordenes_mes_actual.columns]
+                        tabla_mostrar = ordenes_mes_actual[columnas_existentes].copy()
                         
-                        # Crear DataFrame con las columnas en el orden solicitado
-                        if columnas_existentes:
-                            tabla_mostrar = ordenes_mes_actual[columnas_existentes].copy()
-                            
-                            # CORRECCIÓN 1: Convertir la columna OT a entero (si es numérica)
-                            if columna_ot in tabla_mostrar.columns:
-                                # Intentar convertir a entero
-                                try:
-                                    # Primero, convertir a numérico
-                                    tabla_mostrar[columna_ot] = pd.to_numeric(tabla_mostrar[columna_ot], errors='coerce')
-                                    # Luego, convertir a entero (redondear hacia abajo para números decimales)
-                                    tabla_mostrar[columna_ot] = tabla_mostrar[columna_ot].fillna(0).astype('Int64')
-                                    # Reemplazar 0 con vacío para valores NaN originales
-                                    tabla_mostrar[columna_ot] = tabla_mostrar[columna_ot].replace(0, '')
-                                except Exception as e:
-                                    st.warning(f"No se pudo convertir la columna {columna_ot} a entero: {e}")
-                            
-                            # Renombrar la columna OT para que se muestre como 'N° DE OT' en la tabla
-                            if columna_ot in tabla_mostrar.columns:
-                                tabla_mostrar = tabla_mostrar.rename(columns={columna_ot: 'N° DE OT'})
-                                # Reordenar para que 'N° DE OT' sea la primera
-                                nuevas_columnas = ['N° DE OT'] + [col for col in tabla_mostrar.columns if col != 'N° DE OT']
-                                tabla_mostrar = tabla_mostrar[nuevas_columnas]
-                            
-                            # Función para aplicar color según categoría
-                            def color_categoria(val):
-                                if val == 'RETRASADA':
-                                    return 'background-color: #FFA500; color: black; font-weight: bold'
-                                elif val == 'EN EJECUCIÓN':
-                                    return 'background-color: #FFD700; color: black; font-weight: bold'
-                                elif val == 'POR EJECUTAR EN ENERO':
-                                    return 'background-color: #52b3f3; color: black; font-weight: bold'
-                                elif val == 'EJECUTADA':
-                                    return 'background-color: #32CD32; color: black; font-weight: bold'
-                                return ''
-                            
-                            # CORRECCIÓN 2: Mostrar tabla sin columna de índice
-                            # Crear un estilo para la tabla sin índice
-                            styled_table = tabla_mostrar.style.applymap(color_categoria, subset=['CATEGORIA'])
-                            
-                            # Mostrar tabla sin índice (hide_index=True)
-                            st.dataframe(
-                                styled_table,
-                                use_container_width=True,
-                                height=400,
-                                hide_index=True  # Esta opción elimina la columna de índice
-                            )
-                            
-                            # Mostrar información de depuración para verificar la clasificación
-                            with st.expander("🔍 Ver detalles de clasificación"):
-                                st.write("**Órdenes clasificadas como RETRASADAS:**")
-                                retrasadas = ordenes_mes_actual[ordenes_mes_actual['CATEGORIA'] == 'RETRASADA']
-                                if not retrasadas.empty:
-                                    st.write(f"Número de órdenes retrasadas: {len(retrasadas)}")
-                                    st.write("Detalles:")
-                                    # También ocultar índice en esta tabla de depuración
-                                    st.dataframe(retrasadas[[columna_ot, 'ESTADO', 'FECHA DE INICIO', 'FECHA DE FIN', 'CATEGORIA']], 
-                                               hide_index=True)
-                                else:
-                                    st.info("No hay órdenes clasificadas como retrasadas")
-                            
-                            # Botón para descargar datos
-                            csv = tabla_mostrar.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                label="📥 Descargar tabla como CSV",
-                                data=csv,
-                                file_name=f"ordenes_mes_actual_{datetime.now().strftime('%Y%m%d')}.csv",
-                                mime="text/csv"
-                            )
-                        else:
-                            st.warning("No se encontraron las columnas solicitadas en los datos.")
-                    else:
-                        st.error("❌ **Error:** No se encontró ninguna columna de número de orden. Buscamos: OT, N° DE OT, N° DE ORDEN, NUMERO DE ORDEN")
-                        st.write("**Columnas disponibles:**", list(ordenes_mes_actual.columns))
+                        if columna_ot in tabla_mostrar.columns:
+                            try:
+                                tabla_mostrar[columna_ot] = pd.to_numeric(tabla_mostrar[columna_ot], errors='coerce')
+                                tabla_mostrar[columna_ot] = tabla_mostrar[columna_ot].fillna(0).astype('Int64')
+                                tabla_mostrar[columna_ot] = tabla_mostrar[columna_ot].replace(0, '')
+                            except Exception as e:
+                                st.warning(f"No se pudo convertir la columna {columna_ot} a entero: {e}")
+                        
+                        if columna_ot in tabla_mostrar.columns:
+                            tabla_mostrar = tabla_mostrar.rename(columns={columna_ot: 'N° DE OT'})
+                            nuevas_columnas = ['N° DE OT'] + [col for col in tabla_mostrar.columns if col != 'N° DE OT']
+                            tabla_mostrar = tabla_mostrar[nuevas_columnas]
+                        
+                        def color_categoria(val):
+                            if val == 'RETRASADA': return 'background-color: #FFA500; color: black; font-weight: bold'
+                            elif val == 'EN EJECUCIÓN': return 'background-color: #FFD700; color: black; font-weight: bold'
+                            elif val == 'POR EJECUTAR EN ENERO': return 'background-color: #52b3f3; color: black; font-weight: bold'
+                            elif val == 'EJECUTADA': return 'background-color: #32CD32; color: black; font-weight: bold'
+                            return ''
+                        
+                        styled_table = tabla_mostrar.style.applymap(color_categoria, subset=['CATEGORIA'])
+                        st.dataframe(styled_table, use_container_width=True, height=400, hide_index=True)
+                        
+                        csv = tabla_mostrar.to_csv(index=False).encode('utf-8')
+                        st.download_button(label="📥 Descargar tabla como CSV", data=csv,
+                                          file_name=f"ordenes_mes_actual_{datetime.now().strftime('%Y%m%d')}.csv",
+                                          mime="text/csv")
                 else:
                     st.info("No hay órdenes planificadas para el mes actual.")
                 
-                
-                # Gráfico 2: Cumplimiento por mes (gráfico de líneas)
-                st.subheader("📈 Cumplimiento por Mes (CON MEJORA DE FECHA Y CORRECCIONES)")
-                
+                st.subheader("📈 Cumplimiento por Mes")
                 fig2 = go.Figure()
-                
-                fig2.add_trace(go.Scatter(
-                    x=monthly_plan_data['MES_NOMBRE'],
-                    y=monthly_plan_data['CUMPLIMIENTO_PCT'],
-                    mode='lines+markers+text',
-                    name='% Cumplimiento',
-                    line=dict(color='#32CD32', width=3),
-                    marker=dict(size=10, color='#32CD32'),
-                    text=[f"{val:.0f}%" for val in monthly_plan_data['CUMPLIMIENTO_PCT']],
-                    textposition='top center',
-                    textfont=dict(size=12, color='black'),
-                    hovertemplate='<b>%{x}</b><br>Cumplimiento: %{y:.1f}%<extra></extra>'
-                ))
-                
-                # Añadir línea de referencia al 80%
-                fig2.add_hline(y=80, line_dash="dash", line_color="orange", 
-                              annotation_text="Objetivo 80%", 
-                              annotation_position="bottom right")
-                
-                # Añadir línea de referencia al 90%
-                fig2.add_hline(y=90, line_dash="dash", line_color="green", 
-                              annotation_text="Excelente 90%", 
-                              annotation_position="top right")
-                
-                fig2.update_layout(
-                    title='Porcentaje de Cumplimiento por Mes (CON CORRECCIONES)',
-                    xaxis_title='Mes',
-                    yaxis_title='Cumplimiento (%)',
-                    yaxis_range=[0, 105],
-                    height=400,
-                    showlegend=True
-                )
-                
+                fig2.add_trace(go.Scatter(x=monthly_plan_data['MES_NOMBRE'], y=monthly_plan_data['CUMPLIMIENTO_PCT'],
+                                         mode='lines+markers+text', name='% Cumplimiento',
+                                         line=dict(color='#32CD32', width=3), marker=dict(size=10, color='#32CD32'),
+                                         text=[f"{val:.0f}%" for val in monthly_plan_data['CUMPLIMIENTO_PCT']],
+                                         textposition='top center', textfont=dict(size=12, color='black')))
+                fig2.add_hline(y=80, line_dash="dash", line_color="orange",
+                              annotation_text="Objetivo 80%", annotation_position="bottom right")
+                fig2.add_hline(y=90, line_dash="dash", line_color="green",
+                              annotation_text="Excelente 90%", annotation_position="top right")
+                fig2.update_layout(title='Porcentaje de Cumplimiento por Mes',
+                                  xaxis_title='Mes', yaxis_title='Cumplimiento (%)',
+                                  yaxis_range=[0, 105], height=400, showlegend=True)
                 st.plotly_chart(fig2, use_container_width=True)
-                
-                # Tabla detallada - TODOS LOS MESES
-                st.subheader("📋 Detalle por Mes (Todos los meses de 2026 - CON MEJORA DE FECHA Y CORRECCIONES)")
-                
-                # Crear tabla formateada con colores según cumplimiento
-                tabla_detalle = monthly_plan_data.copy()
-                # Asegurar que la columna 'ORDENES_PROYECTADAS' exista
-                columnas_disponibles = tabla_detalle.columns.tolist()
-                columnas_seleccionar = ['MES_NOMBRE', 'TOTAL_PLANIFICADAS', 'ORDENES_CULMINADAS', 
-                                      'ORDENES_EN_EJECUCION', 'ORDENES_RETRASADAS']
-                
-                # Agregar ORDENES_PROYECTADAS si existe
-                if 'ORDENES_PROYECTADAS' in columnas_disponibles:
-                    columnas_seleccionar.append('ORDENES_PROYECTADAS')
-                
-                columnas_seleccionar.append('CUMPLIMIENTO_PCT')
-                
-                # Filtrar solo las columnas que existen
-                columnas_seleccionar = [col for col in columnas_seleccionar if col in columnas_disponibles]
-                tabla_detalle = tabla_detalle[columnas_seleccionar]
-                
-                # Función para aplicar color según cumplimiento
-                def color_cumplimiento(val):
-                    if isinstance(val, (int, float)):
-                        if val >= 90:
-                            return 'background-color: #90EE90; color: black'  # verde claro
-                        elif val >= 80:
-                            return 'background-color: #FFD700; color: black'  # amarillo
-                        elif val >= 70:
-                            return 'background-color: #FFA500; color: black'  # naranja
-                        else:
-                            return 'background-color: #FFB6C1; color: black'  # rojo claro
-                    return ''
-                
-                # Crear DataFrame para mostrar
-                tabla_mostrar = tabla_detalle.copy()
-                tabla_mostrar['CUMPLIMIENTO_PCT'] = tabla_mostrar.apply(
-                    lambda x: f"{x['CUMPLIMIENTO_PCT']:.1f}%" if x['TOTAL_PLANIFICADAS'] > 0 else "Sin datos",
-                    axis=1
-                )
-                
-                # Renombrar columnas
-                nombres_columnas = {
-                    'MES_NOMBRE': 'Mes',
-                    'TOTAL_PLANIFICADAS': 'Planificadas hasta ayer',
-                    'ORDENES_CULMINADAS': 'Culminadas',
-                    'ORDENES_EN_EJECUCION': 'En Ejecución',
-                    'ORDENES_RETRASADAS': 'Retrasadas',
-                    'ORDENES_PROYECTADAS': 'Proyectadas',
-                    'CUMPLIMIENTO_PCT': 'Cumplimiento %'
-                }
-                
-                # Aplicar nombres a las columnas que existan
-                tabla_mostrar = tabla_mostrar.rename(columns={k: v for k, v in nombres_columnas.items() if k in tabla_mostrar.columns})
-                
-                # Aplicar estilos a la tabla - también ocultar índice aquí
-                styled_table = tabla_mostrar.style.applymap(
-                    lambda x: color_cumplimiento(float(x.replace('%', '')) if '%' in str(x) else x), 
-                    subset=['Cumplimiento %'] if 'Cumplimiento %' in tabla_mostrar.columns else []
-                )
-                
-                st.dataframe(styled_table, use_container_width=True, hide_index=True)
-                
-                # Gráfico 3: Proporción General del Plan 2026
-                st.subheader("🥧 Proporción General del Plan 2026 (CON CORRECCIONES)")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                # Gráfico de torta para estado general (4 categorías)
-
-                    estado_labels = ['Culminadas', 'En Ejecución', 'Retrasadas', 'Proyectadas']
-                    estado_values = [total_culminadas, total_en_ejecucion, total_retrasadas]
-                    estado_colores = [
-                        COLOR_PALETTE['estado_orden']['CULMINADAS'],
-                        COLOR_PALETTE['estado_orden']['EN EJECUCIÓN'],
-                        COLOR_PALETTE['estado_orden']['RETRASADAS'],
-                        '#52b3f3'  # Azul para proyectadas
-                    ]
-                    
-                    # Filtrar solo categorías con valores > 0 (VERSIÓN CORREGIDA)
-                    datos_pie = []
-                    for i in range(len(estado_values)):  # Usar len(estado_values) en lugar de len(estado_labels)
-                        if i < len(estado_labels) and i < len(estado_colores):  # Verificar límites
-                            if estado_values[i] > 0:
-                                datos_pie.append((estado_labels[i], estado_values[i], estado_colores[i]))
-                    
-                    if datos_pie:
-                        labels_pie = [d[0] for d in datos_pie]
-                        values_pie = [d[1] for d in datos_pie]
-                        colors_pie = [d[2] for d in datos_pie]
-                        
-                        fig3 = go.Figure(data=[go.Pie(
-                            labels=labels_pie,
-                            values=values_pie,
-                            hole=0.4,
-                            marker_colors=colors_pie,
-                            textinfo='label+percent+value',
-                            hovertemplate='<b>%{label}</b><br>' +
-                                        'Cantidad: %{value}<br>' +
-                                        'Porcentaje: %{percent}<extra></extra>'
-                        )])
-                        
-                        fig3.update_layout(
-                            title='Distribución General del Plan (CON CORRECCIONES)',
-                            height=400
-                        )
-                        
-                        st.plotly_chart(fig3, use_container_width=True)
-                    else:
-                        st.info("No hay datos para mostrar en el gráfico de torta")
-            
-                with col2:
-                    # Gráfico de barras para top meses con mejor cumplimiento
-                    # Filtrar meses con órdenes planificadas
-                    meses_con_datos = monthly_plan_data[monthly_plan_data['TOTAL_PLANIFICADAS'] > 0].copy()
-                    
-                    if not meses_con_datos.empty:
-                        # Calcular porcentaje de órdenes en ejecución por mes
-                        meses_con_datos['%_EN_EJECUCION'] = (meses_con_datos['ORDENES_EN_EJECUCION'] / meses_con_datos['TOTAL_PLANIFICADAS']) * 100
-                        
-                        # Calcular porcentaje de órdenes retrasadas por mes
-                        meses_con_datos['%_RETRASADAS'] = (meses_con_datos['ORDENES_RETRASADAS'] / meses_con_datos['TOTAL_PLANIFICADAS']) * 100
-                        
-                        # Calcular porcentaje de órdenes proyectadas por mes (si existe)
-                        if 'ORDENES_PROYECTADAS' in meses_con_datos.columns:
-                            meses_con_datos['%_PROYECTADAS'] = (meses_con_datos['ORDENES_PROYECTADAS'] / meses_con_datos['TOTAL_PLANIFICADAS']) * 100
-                        
-                        # Ordenar por porcentaje de cumplimiento (descendente)
-                        top_cumplimiento = meses_con_datos.nlargest(5, 'CUMPLIMIENTO_PCT')[['MES_NOMBRE', 'CUMPLIMIENTO_PCT', '%_EN_EJECUCION', '%_RETRASADAS']]
-                        
-                        # Crear gráfico de barras agrupadas
-                        fig4 = go.Figure()
-                        
-                        # Barra de cumplimiento
-                        fig4.add_trace(go.Bar(
-                            x=top_cumplimiento['MES_NOMBRE'],
-                            y=top_cumplimiento['CUMPLIMIENTO_PCT'],
-                            name='Cumplimiento %',
-                            marker_color='#32CD32',
-                            text=top_cumplimiento['CUMPLIMIENTO_PCT'].apply(lambda x: f"{x:.1f}%"),
-                            textposition='outside',
-                            hovertemplate='<b>%{x}</b><br>Cumplimiento: %{y:.1f}%<extra></extra>'
-                        ))
-                        
-                        # Barra de % en ejecución
-                        fig4.add_trace(go.Bar(
-                            x=top_cumplimiento['MES_NOMBRE'],
-                            y=top_cumplimiento['%_EN_EJECUCION'],
-                            name='% En Ejecución',
-                            marker_color='#FFD700',
-                            text=top_cumplimiento['%_EN_EJECUCION'].apply(lambda x: f"{x:.1f}%"),
-                            textposition='outside',
-                            hovertemplate='<b>%{x}</b><br>% En Ejecución: %{y:.1f}%<extra></extra>'
-                        ))
-                        
-                        # Barra de % retrasadas
-                        fig4.add_trace(go.Bar(
-                            x=top_cumplimiento['MES_NOMBRE'],
-                            y=top_cumplimiento['%_RETRASADAS'],
-                            name='% Retrasadas',
-                            marker_color='#FFA500',
-                            text=top_cumplimiento['%_RETRASADAS'].apply(lambda x: f"{x:.1f}%"),
-                            textposition='outside',
-                            hovertemplate='<b>%{x}</b><br>% Retrasadas: %{y:.1f}%<extra></extra>'
-                        ))
-                        
-                        fig4.update_layout(
-                            title='Top 5 Meses: Cumplimiento vs % En Ejecución vs % Retrasadas',
-                            xaxis_title='Mes',
-                            yaxis_title='Porcentaje (%)',
-                            barmode='group',
-                            height=400
-                        )
-                        
-                        st.plotly_chart(fig4, use_container_width=True)
-                    else:
-                        st.info("No hay meses con datos de planificación (considerando la mejora de fecha)")
-                
-                # Mostrar información sobre meses sin datos
-                meses_sin_planificadas = monthly_plan_data[monthly_plan_data['TOTAL_PLANIFICADAS'] == 0]['MES_NOMBRE'].tolist()
-                if meses_sin_planificadas:
-                    st.info(f"**Nota:** Los siguientes meses aún no tienen órdenes planificadas que cumplan con el criterio de fecha (hasta {fecha_corte.strftime('%d/%m/%Y')}): {', '.join(meses_sin_planificadas)}")
-                
-                # Información estadística adicional
-                with st.expander("📊 **Estadísticas Adicionales (CON MEJORA DE FECHA Y CORRECCIONES)**"):
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        # Porcentaje de órdenes en ejecución
-                        pct_en_ejecucion = (total_en_ejecucion / total_planificadas * 100) if total_planificadas > 0 else 0
-                        st.metric("Órdenes en Ejecución", f"{pct_en_ejecucion:.1f}%")
-                    
-                    with col2:
-                        # Eficiencia (culminadas + en ejecución)
-                        eficiencia = ((total_culminadas + total_en_ejecucion) / total_planificadas * 100) if total_planificadas > 0 else 0
-                        st.metric("Eficiencia Total", f"{eficiencia:.1f}%")
-                    
-                    with col3:
-                        # Tasa de retraso
-                        tasa_retraso = (total_retrasadas / total_planificadas * 100) if total_planificadas > 0 else 0
-                        st.metric("Tasa de Retraso", f"{tasa_retraso:.1f}%")
-                    
-                    # Análisis de tendencia
-                    st.write("**Análisis de tendencia (considerando la mejora de fecha y correcciones):**")
-                    if total_en_ejecucion > 0:
-                        st.info(f"Actualmente hay {total_en_ejecucion} órdenes en ejecución (que cumplen con el criterio de fecha). Estas órdenes están siendo trabajadas actualmente y se espera que se conviertan en culminadas pronto.")
-                    
-                    if total_retrasadas > 0:
-                        st.warning(f"⚠️ Hay {total_retrasadas} órdenes retrasadas (que cumplen con el criterio de fecha). Se recomienda revisar estas órdenes para identificar causas de retraso.")
-                    
-                    # Comparación con el indicador del mes actual
-                    if total_planificadas_mes_actual > 0:
-                        st.write(f"**Comparación con el mes actual:**")
-                        st.write(f"- Total planificadas del mes: {total_planificadas_mes_actual} (sin filtrar)")
-                        st.write(f"- Total planificadas hasta ayer: {total_planificadas} (con filtro de fecha)")
-                        diferencia = total_planificadas_mes_actual - total_planificadas
-                        if diferencia > 0:
-                            st.info(f"Hay {diferencia} órdenes programadas para fechas futuras en el mes actual (no consideradas en el cálculo de cumplimiento).")
-                    
-                    # Recomendaciones basadas en los datos
-                    if cumplimiento_general < 80:
-                        st.error("**Recomendación:** El cumplimiento está por debajo del objetivo del 80%. Se recomienda revisar las órdenes retrasadas y en ejecución para mejorar el desempeño.")
-                    elif pct_en_ejecucion > 20:
-                        st.warning("**Recomendación:** Un alto porcentaje de órdenes están en ejecución. Asegúrese de que los recursos estén bien distribuidos para culminarlas a tiempo.")
-                    
-            else:
-                st.info("No se pudieron cargar los datos del plan para 2026.")
-                st.markdown("""
-                ### 🔍 **Información:**
-                - No se han encontrado órdenes de tipo **PREVENTIVO**, **BASADO EN CONDICIÓN** o **MEJORA DE SISTEMA** para el año 2026
-                - **CON LA MEJORA:** Además, no hay órdenes que cumplan con el criterio de fecha (hasta un día antes de la fecha actual)
-                - Esto puede deberse a que:
-                1. Las órdenes aún no han sido creadas en el sistema
-                2. Las fechas de inicio y fin de las órdenes son posteriores a la fecha de corte
-                3. Los datos no han sido cargados correctamente
-                
-                ### **Solución:**
-                - Verifica que el dataset contenga órdenes para el año 2026
-                - Asegúrate de que las órdenes tengan los tipos correctos
-                - Revisa que las fechas de inicio y fin estén correctamente formateadas
-                - Verifica que exista la columna 'STATUS' en los datos
-                - Considera que solo se evalúan órdenes con fecha hasta un día antes de hoy
-                """)
         
-        # ============================================
-        # NUEVA PESTAÑA: Reporte de Horas Extras
-        # ============================================
+        # ── TAB 10: Reporte Horas Extras ──────────────────────────────────
         with tab10:
             st.header("📊 Reporte de Horas Extras")
-               
-            # Filtros específicos para el reporte de horas extras
+            st.markdown("""
+            > El reporte se genera en formato **Reporte de Justificación de Sobretiempo** de Fortidex,
+            > organizado por semana y empleado, con columnas de **H. ENTRADA**, **H. SALIDA**, **50%**, **100%**
+            > y **ACTIVIDAD/JUSTIFICACIÓN**, igual al documento oficial de la empresa.
+            """)
+            
             st.subheader("🔍 Filtros para el Reporte")
             
-            # Determinar el rango de fechas disponible
             if not st.session_state.overtime_data.empty and 'INICIO_HORAS_EXTRAS' in st.session_state.overtime_data.columns:
-                # Obtener el rango de fechas de los datos
                 min_date_overtime = st.session_state.overtime_data['INICIO_HORAS_EXTRAS'].min().date()
                 max_date_overtime = st.session_state.overtime_data['INICIO_HORAS_EXTRAS'].max().date()
             else:
-                # Si no hay datos, usar un rango por defecto
                 min_date_overtime = datetime(2026, 1, 1).date()
                 max_date_overtime = datetime(2026, 12, 31).date()
             
             col1, col2 = st.columns(2)
-            
             with col1:
                 report_fecha_inicio = st.date_input(
                     "Fecha de inicio para el reporte",
-                    value=min_date_overtime,
-                    min_value=min_date_overtime,
-                    max_value=max_date_overtime,
-                    key="report_fecha_inicio"
+                    value=min_date_overtime, min_value=min_date_overtime,
+                    max_value=max_date_overtime, key="report_fecha_inicio"
                 )
-            
             with col2:
                 report_fecha_fin = st.date_input(
                     "Fecha de fin para el reporte",
-                    value=max_date_overtime,
-                    min_value=min_date_overtime,
-                    max_value=max_date_overtime,
-                    key="report_fecha_fin"
+                    value=max_date_overtime, min_value=min_date_overtime,
+                    max_value=max_date_overtime, key="report_fecha_fin"
                 )
             
-            # Aplicar filtros automáticamente
-            filtered_overtime = apply_overtime_filters(
-                st.session_state.overtime_data, 
-                report_fecha_inicio, 
-                report_fecha_fin
+            filtered_overtime_report = apply_overtime_filters(
+                st.session_state.overtime_data, report_fecha_inicio, report_fecha_fin
             )
             
-            # Mostrar información del filtrado
-            st.info(f"Filtros aplicados automáticamente: {len(filtered_overtime)} registros encontrados entre {report_fecha_inicio} y {report_fecha_fin}")
+            st.info(f"Filtros aplicados: {len(filtered_overtime_report)} registros encontrados entre {report_fecha_inicio} y {report_fecha_fin}")
             
-            # Mostrar estadísticas del reporte
-            st.subheader("📈 Estadísticas del Reporte")
-            
-            if not filtered_overtime.empty:
+            if not filtered_overtime_report.empty:
                 col1, col2, col3, col4 = st.columns(4)
-                
                 with col1:
-                    total_registros = len(filtered_overtime)
-                    st.metric("Total Registros", f"{total_registros}")
-                
+                    st.metric("Total Registros", f"{len(filtered_overtime_report)}")
                 with col2:
-                    if 'HORAS_EXTRAS' in filtered_overtime.columns:
-                        total_horas = filtered_overtime['HORAS_EXTRAS'].sum()
+                    if 'HORAS_EXTRAS' in filtered_overtime_report.columns:
+                        total_horas = filtered_overtime_report['HORAS_EXTRAS'].sum()
                         st.metric("Horas Extras Totales", f"{total_horas:.2f} horas")
                     else:
                         st.metric("Horas Extras Totales", "N/A")
-                
                 with col3:
-                    if 'SALDO_HORAS_EXTRAS' in filtered_overtime.columns:
-                        total_costo = filtered_overtime['SALDO_HORAS_EXTRAS'].sum()
+                    if 'SALDO_HORAS_EXTRAS' in filtered_overtime_report.columns:
+                        total_costo = filtered_overtime_report['SALDO_HORAS_EXTRAS'].sum()
                         st.metric("Costo Total", f"${total_costo:,.2f}")
                     else:
                         st.metric("Costo Total", "N/A")
-                
                 with col4:
-                    if 'RESPONSABLE' in filtered_overtime.columns:
-                        tecnicos_unicos = filtered_overtime['RESPONSABLE'].nunique()
+                    if 'RESPONSABLE' in filtered_overtime_report.columns:
+                        tecnicos_unicos = filtered_overtime_report['RESPONSABLE'].nunique()
                         st.metric("Técnicos Involucrados", f"{tecnicos_unicos}")
                     else:
                         st.metric("Técnicos Involucrados", "N/A")
                 
-                # Mostrar vista previa de los datos
                 st.subheader("👁️ Vista Previa de los Datos")
+                preview_cols = ['RESPONSABLE', 'OT', 'INICIO_HORAS_EXTRAS', 'HORAS_EXTRAS', 'SALDO_HORAS_EXTRAS']
+                existing_cols = [col for col in preview_cols if col in filtered_overtime_report.columns]
                 
-                # Seleccionar columnas para mostrar
-                preview_cols = ['RESPONSABLE', 'OT', 'INICIO_HORAS_EXTRAS', 
-                            'HORAS_EXTRAS', 'SALDO_HORAS_EXTRAS']
-
-                existing_cols = [col for col in preview_cols if col in filtered_overtime.columns]
-
                 if existing_cols:
-                    preview_df = filtered_overtime[existing_cols].copy()
-                    
-                    # FORMATO ESPECÍFICO PARA LA COLUMNA OT - ENTERO SIN DECIMALES
+                    preview_df = filtered_overtime_report[existing_cols].copy()
                     if 'OT' in preview_df.columns:
-                        # Función para asegurar que OT sea entero
                         def format_ot_as_int(ot_value):
-                            if pd.isna(ot_value) or ot_value == '':
-                                return ''
-                            
-                            # Convertir a string
-                            ot_str = str(ot_value).strip()
-                            
-                            # Remover espacios y caracteres especiales
-                            ot_str = ot_str.replace(' ', '')
-                            
-                            # Si ya es un número entero (sin punto), retornarlo
-                            if ot_str.replace('-', '', 1).isdigit():
-                                return ot_str
-                            
-                            # Si tiene punto decimal, convertirlo
+                            if pd.isna(ot_value) or ot_value == '': return ''
+                            ot_str = str(ot_value).strip().replace(' ', '')
+                            if ot_str.replace('-', '', 1).isdigit(): return ot_str
                             if '.' in ot_str:
                                 try:
-                                    # Intentar convertir a float
                                     num = float(ot_str)
-                                    # Si es entero, quitar decimales
-                                    if num.is_integer():
-                                        return str(int(num))
-                                    else:
-                                        # Si tiene decimales reales, redondear a 2 decimales
-                                        return f"{num:.2f}"
-                                except:
-                                    return ot_str
-                            
+                                    return str(int(num)) if num.is_integer() else f"{num:.2f}"
+                                except: return ot_str
                             return ot_str
-                        
-                        # Aplicar el formato
                         preview_df['OT'] = preview_df['OT'].apply(format_ot_as_int)
-                    
-                    # Formatear otras columnas
                     if 'INICIO_HORAS_EXTRAS' in preview_df.columns:
                         preview_df['INICIO_HORAS_EXTRAS'] = preview_df['INICIO_HORAS_EXTRAS'].dt.strftime('%d/%m/%Y %H:%M')
-                    
                     if 'HORAS_EXTRAS' in preview_df.columns:
                         preview_df['HORAS_EXTRAS'] = preview_df['HORAS_EXTRAS'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "0.00")
-                    
                     if 'SALDO_HORAS_EXTRAS' in preview_df.columns:
                         preview_df['SALDO_HORAS_EXTRAS'] = preview_df['SALDO_HORAS_EXTRAS'].apply(
-                            lambda x: f"${x:,.2f}" if pd.notnull(x) and x != 0 else "$0.00"
-                        )
+                            lambda x: f"${x:,.2f}" if pd.notnull(x) and x != 0 else "$0.00")
                     
-                    # Mostrar la tabla con formato específico para OT
-                    st.dataframe(
-                        preview_df.head(20),
-                        use_container_width=True,
-                        column_config={
-                            "OT": st.column_config.TextColumn(
-                                "N° OT",
-                                help="Número de orden de trabajo",
-                                width="small"
-                            ),
-                            "RESPONSABLE": st.column_config.TextColumn(
-                                "Técnico",
-                                width="medium"
-                            ),
-                            "INICIO_HORAS_EXTRAS": st.column_config.TextColumn(
-                                "Fecha/Hora Inicio",
-                                width="medium"
-                            ),
-                            "HORAS_EXTRAS": st.column_config.NumberColumn(
-                                "Horas Extras",
-                                format="%.2f horas"
-                            ),
-                            "SALDO_HORAS_EXTRAS": st.column_config.TextColumn(
-                                "Valor ($)",
-                                width="small"
-                            )
-                        }
-                    )
-                    # Mostrar más datos si hay muchos registros
+                    st.dataframe(preview_df.head(20), use_container_width=True,
+                                column_config={
+                                    "OT": st.column_config.TextColumn("N° OT", width="small"),
+                                    "RESPONSABLE": st.column_config.TextColumn("Técnico", width="medium"),
+                                    "INICIO_HORAS_EXTRAS": st.column_config.TextColumn("Fecha/Hora Inicio", width="medium"),
+                                    "HORAS_EXTRAS": st.column_config.NumberColumn("Horas Extras", format="%.2f horas"),
+                                    "SALDO_HORAS_EXTRAS": st.column_config.TextColumn("Valor ($)", width="small")
+                                })
                     if len(preview_df) > 20:
                         st.info(f"Mostrando 20 de {len(preview_df)} registros. El reporte completo se incluirá en el archivo Excel.")
                 
-                # Generar y descargar reporte en Excel
+                # ── Descarga del Excel ──────────────────────────────────────
                 st.subheader("📥 Descargar Reporte en Excel")
                 
                 st.markdown("""
-                ### **Contenido del archivo Excel:**
-                1. **Hoja 'Horas Extras':** Registros detallados de horas extras
-                2. **Hoja 'Resumen':** Resumen por técnico con totales
-                
-                ### **Columnas incluidas:**
-                - Técnico
-                - N° OT
-                - Fecha/Hora Inicio
-                - Fecha/Hora Fin
-                - Horas Extras (horas)
-                - Horas Extras (minutos)
-                - Valor en Dólares
+                ### **El archivo Excel generado incluye:**
+                | Hoja | Contenido |
+                |------|-----------|
+                | **Reporte Sobretiempo** | Formato oficial Fortidex: encabezado institucional, tabla por empleado con DIA, FECHA, H. ENTRADA, H. SALIDA, 50%, 100%, ACTIVIDAD — organizado por semana |
+                | **Resumen por Técnico** | Totales de horas y valor en dólares por técnico |
+                | **Detalle Registros** | Datos crudos completos de la hoja DETALLE_HE |
                 """)
                 
-                # Botón para generar y descargar el reporte
                 if st.button("⬇️ Generar y Descargar Reporte Excel", type="primary"):
-                    with st.spinner("Generando reporte en Excel..."):
-                        # Generar el reporte en Excel
+                    with st.spinner("Generando reporte en formato Fortidex..."):
                         excel_data = generate_overtime_report_excel(
-                            filtered_overtime,
-                            report_fecha_inicio,
-                            report_fecha_fin
+                            filtered_overtime_report, report_fecha_inicio, report_fecha_fin
                         )
                         
                         if excel_data:
-                            # Crear nombre de archivo con fecha
                             fecha_str = datetime.now().strftime('%Y%m%d_%H%M%S')
-                            filename = f"reporte_horas_extras_{fecha_str}.xlsx"
-                            
-                            # Botón de descarga
+                            filename = f"reporte_justificacion_sobretiempo_{fecha_str}.xlsx"
                             st.download_button(
-                                label="💾 Descargar Archivo Excel",
+                                label="💾 Descargar Reporte Oficial Fortidex",
                                 data=excel_data,
                                 file_name=filename,
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
-                            
-                            st.success("✅ Reporte generado exitosamente. Haz clic en el botón de descarga.")
+                            st.success("✅ Reporte generado en formato Justificación de Sobretiempo Fortidex. Haz clic para descargar.")
                         else:
                             st.error("❌ No se pudo generar el reporte. Verifica que haya datos disponibles.")
             else:
                 st.warning("⚠️ No hay datos de horas extras para el período seleccionado.")
-                st.markdown("""
-                ### **Posibles soluciones:**
-                1. **Ajusta los filtros de fecha** para incluir un rango con datos
-                2. **Verifica que la hoja 'DETALLE_HE'** tenga datos
-                3. **Asegúrate de que las fechas** en 'INICIO_HORAS_EXTRAS' estén en formato correcto
-                """)
-            
-            # Información adicional
-            with st.expander("ℹ️ Información sobre los datos de horas extras"):
-                st.markdown("""
-                ### **Fuente de datos: Hoja 'DETALLE_HE'**
-                
-                #### **Estructura esperada:**
-                1. **RESPONSABLE_N:** Nombre del técnico que generó las horas extras
-                2. **OT_ID:** Número de orden de trabajo relacionada
-                3. **INICIO_HORAS_EXTRAS:** Fecha y hora de inicio de las horas extras
-                4. **FIN_HORAS_EXTRAS:** Fecha y hora de fin de las horas extras
-                5. **HORAS EXTRAS:** Cantidad de horas extras trabajadas (en horas)
-                6. **SALDO HORAS EXTRAS:** Valor en dólares de las horas extras
-                
-                #### **Procesamiento aplicado:**
-                - Conversión de horas a minutos: `H_EXTRA_MIN = HORAS_EXTRAS × 60`
-                - Filtrado por rango de fechas usando 'INICIO_HORAS_EXTRAS'
-                - Agrupación por técnico y semana para análisis
-                
-                #### **Notas importantes:**
-                - Los valores en dólares ya están calculados en la fuente
-                - No se requiere cruce con datos de personal para costos
-                - Cada registro representa un evento específico de horas extras
-                """)
     else:
         st.info("Por favor, carga datos para comenzar.")
-        
-        st.subheader("Instrucciones:")
-        st.markdown("""
-        1. **Carga automática desde Google Sheets:**
-        - Los datos se cargan automáticamente desde Google Sheets al abrir la aplicación
-        
-        2. **MEJORAS IMPLEMENTADAS:**
-        - **Fuente de horas extras:** Ahora se usa la hoja 'DETALLE_HE' en lugar de la columna 'h extra (min)' de 'DATAMTTO'
-        - **Nuevo cálculo de tiempo disponible:** 
-          - Se calcula únicamente basado en el número de días entre las fechas seleccionadas
-          - Fórmula: Número de días × 24 horas × 60 minutos
-          - Ejemplo: Para 27 días (2026-01-01 a 2026-01-27): 27 × 24 × 60 = 38,880 minutos
-        - **Nueva pestaña:** Reporte de horas extras con descarga en Excel
-        
-        3. **Actualización dinámica:**
-        - El tiempo disponible se recalcula automáticamente al cambiar el rango de fechas
-        - Todos los indicadores que dependen de este valor se actualizan en tiempo real
-        
-        4. **Mantenimiento del diseño:**
-        - Todas las visualizaciones, pestañas y funcionalidades permanecen iguales
-        - Solo se modificó la lógica de cálculo de horas extras y tiempo disponible
-        - La experiencia de usuario es idéntica pero con cálculos correctos y nueva funcionalidad
-        """)
 
 if __name__ == "__main__":
     main()
