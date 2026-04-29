@@ -146,7 +146,7 @@ if not st.session_state["autenticado"]:
     st.stop()
 
 # ============================================
-# CONTINUACIÓN DEL CÓDIGO ORIGINAL CON MEJORAS
+# FUNCIONES PRINCIPALES
 # ============================================
 
 def mostrar_info_usuario():
@@ -274,6 +274,15 @@ def clean_overtime_data(df):
     if 'SALDO  HORAS EXTRAS' in df_clean.columns:
         df_clean = df_clean.rename(columns={'SALDO  HORAS EXTRAS': 'SALDO_HORAS_EXTRAS'})
     
+    # Buscar columna de número de orden (OT)
+    if 'OT' not in df_clean.columns:
+        for col in ['N° DE OT', 'N° OT', 'ORDEN', 'NUMERO DE ORDEN', 'OT_ID']:
+            if col in df_clean.columns:
+                df_clean['OT'] = df_clean[col].astype(str).str.strip()
+                break
+        else:
+            df_clean['OT'] = ''
+    
     if 'INICIO_HORAS_EXTRAS' in df_clean.columns:
         try:
             df_clean['INICIO_HORAS_EXTRAS'] = pd.to_datetime(
@@ -300,9 +309,6 @@ def clean_overtime_data(df):
             df_clean['SALDO_HORAS_EXTRAS'] = df_clean['SALDO_HORAS_EXTRAS'].astype(str)
             df_clean['SALDO_HORAS_EXTRAS'] = df_clean['SALDO_HORAS_EXTRAS'].str.replace('[^\d\.\-]', '', regex=True)
         df_clean['SALDO_HORAS_EXTRAS'] = pd.to_numeric(df_clean['SALDO_HORAS_EXTRAS'], errors='coerce').fillna(0)
-    
-    if 'OT_ID' in df_clean.columns:
-        df_clean['OT'] = df_clean['OT_ID'].astype(str).str.strip()
     
     return df_clean
 
@@ -1148,33 +1154,34 @@ def get_ordenes_mes_actual(df):
     df_mes_actual['FECHA_INICIO_DATE'] = df_mes_actual['FECHA_DE_INICIO'].dt.date
     df_mes_actual['FECHA_FIN_DATE'] = df_mes_actual['FECHA_DE_FIN'].dt.date
     
-    mask_retrasadas = (df_mes_actual['STATUS_NORM'] == 'PENDIENTE') & \
-                      (df_mes_actual['FECHA_INICIO_DATE'] < fecha_actual) & \
-                      (df_mes_actual['FECHA_FIN_DATE'] < fecha_actual)
+    meses_es = {
+        1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL',
+        5: 'MAYO', 6: 'JUNIO', 7: 'JULIO', 8: 'AGOSTO',
+        9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE'
+    }
     
-    mask_en_ejecucion = df_mes_actual['STATUS_NORM'] == 'EN PROCESO'
+    def asignar_categoria(row):
+        if row['STATUS_NORM'] == 'CULMINADO':
+            return 'EJECUTADA'
+        elif row['STATUS_NORM'] == 'EN PROCESO':
+            return 'EN EJECUCIÓN'
+        elif row['STATUS_NORM'] == 'PENDIENTE':
+            if row['FECHA_INICIO_DATE'] < fecha_actual and row['FECHA_FIN_DATE'] < fecha_actual:
+                return 'RETRASADA'
+            else:
+                mes_inicio = row['FECHA_DE_INICIO'].month
+                nombre_mes = meses_es.get(mes_inicio, 'MES DESCONOCIDO')
+                return f'POR EJECUTAR EN {nombre_mes}'
+        else:
+            return 'OTROS'
     
-    mask_por_ejecutar = (df_mes_actual['STATUS_NORM'] == 'PENDIENTE') & \
-                        ((df_mes_actual['FECHA_INICIO_DATE'] >= fecha_actual) | \
-                         (df_mes_actual['FECHA_FIN_DATE'] >= fecha_actual))
-    
-    mask_ejecutadas = df_mes_actual['STATUS_NORM'] == 'CULMINADO'
-    
-    df_mes_actual['CATEGORIA'] = 'OTROS'
-    df_mes_actual.loc[mask_retrasadas, 'CATEGORIA'] = 'RETRASADA'
-    df_mes_actual.loc[mask_en_ejecucion, 'CATEGORIA'] = 'EN EJECUCIÓN'
-    df_mes_actual.loc[mask_por_ejecutar, 'CATEGORIA'] = 'POR EJECUTAR EN ENERO'
-    df_mes_actual.loc[mask_ejecutadas, 'CATEGORIA'] = 'EJECUTADA'
-    
-    orden_categorias = ['RETRASADA', 'EN EJECUCIÓN', 'POR EJECUTAR EN ENERO', 'EJECUTADA']
-    df_mes_actual['CATEGORIA_ORDEN'] = pd.Categorical(df_mes_actual['CATEGORIA'], categories=orden_categorias, ordered=True)
-    df_mes_actual = df_mes_actual.sort_values(['CATEGORIA_ORDEN', 'FECHA_DE_INICIO'])
+    df_mes_actual['CATEGORIA'] = df_mes_actual.apply(asignar_categoria, axis=1)
+    df_mes_actual = df_mes_actual.sort_values('FECHA_DE_INICIO', ascending=True)
     
     df_resultado = pd.DataFrame()
     
     columna_ot = None
     posibles_nombres = ['OT', 'N° DE OT', 'N° DE ORDEN', 'NUMERO DE ORDEN', 'N° OT', 'ORDEN']
-    
     for nombre in posibles_nombres:
         if nombre in df_mes_actual.columns:
             columna_ot = nombre
@@ -1290,20 +1297,74 @@ def format_date_dd_mm_aaaa(date):
         return str(date)
 
 # ============================================
-# FUNCIÓN MEJORADA: Generar reporte de horas extras en formato Fortidex
-# Replica el "Reporte de Justificación de Sobretiempo" de la imagen
+# FUNCIÓN MEJORADA: GENERAR REPORTE EXCEL (CORREGIDO)
 # ============================================
 
-def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
+def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, ordenes_df=None):
     """
     Genera un archivo Excel con:
     - Hoja "HE Semanal por Técnico": tabla semanal por cada técnico con columnas
-      SEMANA, DÍA, CANT. HORAS 50%, CANT. HORAS 100%, NÚMERO DE ÓRDENES
+      SEMANA, DÍA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD
     - Hoja "Resumen por Técnico": totales acumulados por técnico
     - Hoja "Detalle Registros": datos crudos completos
     """
     if overtime_data.empty:
         return None
+
+    # Enriquecer con datos de órdenes (equipo, actividad) si se proporciona ordenes_df
+    df_enriched = overtime_data.copy()
+    if ordenes_df is not None and not ordenes_df.empty and 'OT' in df_enriched.columns:
+        # Buscar columna de OT en ordenes_df
+        col_ot_ordenes = None
+        for col in ['OT', 'N° DE OT', 'N° OT', 'ORDEN', 'NUMERO DE ORDEN']:
+            if col in ordenes_df.columns:
+                col_ot_ordenes = col
+                break
+        if col_ot_ordenes:
+            ordenes_df[str(col_ot_ordenes)] = ordenes_df[col_ot_ordenes].astype(str).str.strip()
+            df_enriched['OT_KEY'] = df_enriched['OT'].astype(str).str.strip()
+            
+            # Seleccionar columnas de equipo y actividad
+            equipo_col = None
+            for col in ordenes_df.columns:
+                if 'EQUIPO' in col.upper():
+                    equipo_col = col
+                    break
+            actividad_col = None
+            for col in ordenes_df.columns:
+                if 'DESCRIPCIÓN' in col.upper() or 'ACTIVIDAD' in col.upper() or 'JUSTIFICACIÓN' in col.upper():
+                    actividad_col = col
+                    break
+            
+            merge_cols = [col_ot_ordenes]
+            if equipo_col:
+                merge_cols.append(equipo_col)
+                ordenes_df = ordenes_df.rename(columns={equipo_col: 'EQUIPO_ASIGNADO'})
+            if actividad_col:
+                merge_cols.append(actividad_col)
+                ordenes_df = ordenes_df.rename(columns={actividad_col: 'ACTIVIDAD'})
+            
+            # Hacer merge evitando conflicto con la columna 'OT' original
+            # Usamos sufijos para que la columna OT original se conserve como 'OT'
+            df_enriched = df_enriched.merge(
+                ordenes_df[[col_ot_ordenes, 'EQUIPO_ASIGNADO', 'ACTIVIDAD']],
+                left_on='OT_KEY', right_on=col_ot_ordenes,
+                how='left', suffixes=('', '_orden')
+            )
+            # Eliminar posibles columnas sobrantes
+            if 'OT_orden' in df_enriched.columns:
+                df_enriched = df_enriched.drop(columns=['OT_orden'])
+            if 'EQUIPO_ASIGNADO' not in df_enriched.columns:
+                df_enriched['EQUIPO_ASIGNADO'] = ''
+            if 'ACTIVIDAD' not in df_enriched.columns:
+                df_enriched['ACTIVIDAD'] = ''
+            df_enriched = df_enriched.drop(columns=['OT_KEY'])
+        else:
+            df_enriched['EQUIPO_ASIGNADO'] = ''
+            df_enriched['ACTIVIDAD'] = ''
+    else:
+        df_enriched['EQUIPO_ASIGNADO'] = ''
+        df_enriched['ACTIVIDAD'] = ''
 
     try:
         from openpyxl import Workbook
@@ -1311,10 +1372,8 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
         from openpyxl.utils import get_column_letter
 
         wb = Workbook()
-        # Eliminar hoja por defecto
         wb.remove(wb.active)
 
-        # ── Paleta de colores Fortidex ─────────────────────────────────────
         FORTIDEX_ORANGE = "FF8C00"
         FORTIDEX_BLUE   = "1F4E79"
         HEADER_BLUE     = "BDD7EE"
@@ -1323,7 +1382,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
         SUM_BLUE        = "D6E4F0"
         WHITE           = "FFFFFF"
         BLACK           = "000000"
-        TECNICO_HEADER  = "D9E1F2"  # azul muy claro para bloque de técnico
+        TECNICO_HEADER  = "D9E1F2"
 
         thin  = Side(style="thin",   color=BLACK)
         thick = Side(style="medium", color="1F4E79")
@@ -1333,7 +1392,6 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
         def cs(ws, row, col, value="", bold=False, size=10, color=BLACK,
                bg=None, h_align="center", v_align="center",
                wrap=False, border=None, number_format=None):
-            """Helper: aplica estilo a una celda."""
             c = ws.cell(row=row, column=col, value=value)
             c.font      = Font(name="Arial", bold=bold, size=size, color=color)
             c.alignment = Alignment(horizontal=h_align, vertical=v_align, wrap_text=wrap)
@@ -1346,12 +1404,11 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
             return c
 
         def ms(ws, r1, c1, r2, c2, **kwargs):
-            """Helper: merge + estilo."""
             ws.merge_cells(start_row=r1, start_column=c1, end_row=r2, end_column=c2)
             return cs(ws, r1, c1, **kwargs)
 
-        # ── Preprocesar datos ──────────────────────────────────────────────
-        df = overtime_data.copy()
+        # Preprocesar datos
+        df = df_enriched.copy()
 
         for col_check, default in [
             ('RESPONSABLE', "SIN NOMBRE"),
@@ -1359,6 +1416,8 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
             ('FIN_HORAS_EXTRAS', pd.NaT),
             ('HORAS_EXTRAS', 0.0),
             ('SALDO_HORAS_EXTRAS', 0.0),
+            ('EQUIPO_ASIGNADO', ''),
+            ('ACTIVIDAD', '')
         ]:
             if col_check not in df.columns:
                 df[col_check] = default
@@ -1377,12 +1436,19 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
             if s.endswith('.0'):
                 s = s[:-2]
             try:
-                f = float(s)
-                return str(int(f)) if f.is_integer() else s
+                num = float(s)
+                if num.is_integer():
+                    return str(int(num))
+                else:
+                    return s
             except:
                 return s
 
+        # Asegurar columna OT_FMT
         df['OT_FMT'] = df['OT'].apply(fmt_ot) if 'OT' in df.columns else ''
+        # Si no existe 'OT', crearla vacía para evitar errores
+        if 'OT' not in df.columns:
+            df['OT'] = ''
 
         df_valid = df[df['INICIO_HORAS_EXTRAS'].notna()].copy()
         df_valid['SEMANA_ISO'] = df_valid['INICIO_HORAS_EXTRAS'].dt.isocalendar().week.astype(int)
@@ -1390,47 +1456,33 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
         df_valid['SEMANA_STR'] = df_valid.apply(
             lambda x: f"{x['AÑO_ISO']}-S{x['SEMANA_ISO']:02d}", axis=1
         )
-        df_valid['DOW'] = df_valid['INICIO_HORAS_EXTRAS'].dt.dayofweek  # 0=Lun…6=Dom
+        df_valid['DOW'] = df_valid['INICIO_HORAS_EXTRAS'].dt.dayofweek
 
-        # Días de la semana en orden
         DIAS_ORDEN   = [0, 1, 2, 3, 4, 5, 6]
         DIAS_NOMBRES = {0: 'LUNES', 1: 'MARTES', 2: 'MIÉRCOLES',
                         3: 'JUEVES', 4: 'VIERNES', 5: 'SÁBADO', 6: 'DOMINGO'}
-        # Sábado y domingo → 100 %; resto → 50 %
         DIAS_100 = {5, 6}
-
         df_valid = df_valid.sort_values(['RESPONSABLE', 'AÑO_ISO', 'SEMANA_ISO', 'DOW'])
 
-        # ══════════════════════════════════════════════════════════════════
-        # HOJA 1: "HE Semanal por Técnico"
-        # Columnas: SEMANA | DÍA | CANT. HORAS 50% | CANT. HORAS 100% | N° OT
-        # Solo se muestran los días que caen dentro del rango de fechas filtrado
-        # La columna N° OT muestra los códigos de OT del día (no la cantidad)
-        # ══════════════════════════════════════════════════════════════════
+        # Hoja 1: HE Semanal por Técnico
         ws1 = wb.create_sheet("HE Semanal por Técnico")
-
-        # Anchos de columna — N° OT necesita más espacio para los códigos
-        col_w = {1: 20, 2: 14, 3: 22, 4: 22, 5: 40}
+        col_w = {1: 20, 2: 14, 3: 22, 4: 22, 5: 28, 6: 35, 7: 45}
         for ci, w in col_w.items():
             ws1.column_dimensions[get_column_letter(ci)].width = w
 
-        # Título general
         ws1.row_dimensions[1].height = 24
-        ms(ws1, 1, 1, 1, 5,
+        ms(ws1, 1, 1, 1, 7,
            value="REPORTE DE HORAS EXTRAS SEMANAL POR TÉCNICO",
            bold=True, size=13, color=WHITE, bg=FORTIDEX_BLUE,
            h_align="center", border=thick_border)
 
-        # Sub-título período
         ws1.row_dimensions[2].height = 15
-        ms(ws1, 2, 1, 2, 5,
+        ms(ws1, 2, 1, 2, 7,
            value=f"Período: {fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}",
            bold=False, size=10, color=FORTIDEX_BLUE, bg=HEADER_BLUE,
            h_align="center", border=thin_border)
 
         current_row = 3
-
-        # Convertir fecha_inicio y fecha_fin a date para comparación
         fi_date = fecha_inicio.date() if hasattr(fecha_inicio, 'date') else fecha_inicio
         ff_date = fecha_fin.date()    if hasattr(fecha_fin,    'date') else fecha_fin
 
@@ -1438,17 +1490,14 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
 
         for tecnico in tecnicos_lista:
             df_tec = df_valid[df_valid['RESPONSABLE'] == tecnico].copy()
-
-            # ── Cabecera del bloque del técnico ───────────────────────────
             ws1.row_dimensions[current_row].height = 18
-            ms(ws1, current_row, 1, current_row, 5,
+            ms(ws1, current_row, 1, current_row, 7,
                value=f"TÉCNICO:  {tecnico.upper()}",
                bold=True, size=11, color=FORTIDEX_BLUE, bg=TECNICO_HEADER,
                h_align="left", border=thick_border)
             current_row += 1
 
-            # ── Cabecera de columnas ───────────────────────────────────────
-            headers = ["SEMANA", "DÍA", "CANT. HORAS 50%", "CANT. HORAS 100%", "N° OT"]
+            headers = ["SEMANA", "DÍA", "CANT. HORAS 50%", "CANT. HORAS 100%", "N° OT", "EQUIPO ASIGNADO", "ACTIVIDAD"]
             ws1.row_dimensions[current_row].height = 20
             for ci, hdr in enumerate(headers, start=1):
                 cs(ws1, current_row, ci, hdr,
@@ -1457,42 +1506,29 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
             current_row += 1
 
             semanas_tec = sorted(df_tec['SEMANA_STR'].unique())
-
-            total_h50_tec  = 0.0
-            total_h100_tec = 0.0
+            total_h50_tec = total_h100_tec = 0.0
 
             for semana_str in semanas_tec:
                 df_sem = df_tec[df_tec['SEMANA_STR'] == semana_str].copy()
+                total_h50_sem = total_h100_sem = 0.0
 
-                total_h50_sem  = 0.0
-                total_h100_sem = 0.0
-
-                # Calcular lunes y domingo de la semana ISO
                 año_iso    = int(df_sem['AÑO_ISO'].iloc[0])
                 semana_iso = int(df_sem['SEMANA_ISO'].iloc[0])
                 try:
-                    # fromisocalendar es el método correcto para semanas ISO
-                    # strptime con %W calcula semanas del año civil (no ISO)
-                    # y devuelve fechas incorrectas (ej: S08-2026 → 23/02 en vez de 16/02)
-                    lunes_d   = datetime.fromisocalendar(int(año_iso), int(semana_iso), 1).date()
+                    lunes_d   = datetime.fromisocalendar(año_iso, semana_iso, 1).date()
                     domingo_d = lunes_d + timedelta(days=6)
                 except Exception:
                     lunes_d   = df_sem['INICIO_HORAS_EXTRAS'].min().date()
                     domingo_d = df_sem['INICIO_HORAS_EXTRAS'].max().date()
 
-                # Recortar el rango de días al período filtrado
-                # Solo mostrar días que estén dentro de [fi_date, ff_date]
-                dia_inicio_semana = max(lunes_d,   fi_date)
+                dia_inicio_semana = max(lunes_d, fi_date)
                 dia_fin_semana    = min(domingo_d, ff_date)
-
-                # Etiqueta de semana con las fechas reales recortadas
                 semana_label = (
                     f"S{semana_iso:02d}  "
                     f"{dia_inicio_semana.strftime('%d/%m')} - "
                     f"{dia_fin_semana.strftime('%d/%m/%Y')}"
                 )
 
-                # Generar la lista de días dentro del rango para esta semana
                 dias_en_rango = []
                 for dow in DIAS_ORDEN:
                     fecha_dia = lunes_d + timedelta(days=dow)
@@ -1500,105 +1536,85 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
                         dias_en_rango.append((dow, fecha_dia))
 
                 primera_fila_semana = True
-
                 for i_dia, (dow, fecha_dia) in enumerate(dias_en_rango):
                     dia_nombre = DIAS_NOMBRES[dow]
-                    df_dia     = df_sem[df_sem['DOW'] == dow]
-
+                    df_dia = df_sem[df_sem['DOW'] == dow]
                     h_horas = float(df_dia['HORAS_EXTRAS'].sum()) if not df_dia.empty else 0.0
-                    bg_row  = WHITE if i_dia % 2 == 0 else ROW_GRAY
+                    bg_row = WHITE if i_dia % 2 == 0 else ROW_GRAY
 
-                    # Obtener los códigos de OT del día (no la cantidad)
-                    if not df_dia.empty and 'OT_FMT' in df_dia.columns:
-                        ots = [str(v) for v in df_dia['OT_FMT'].dropna()
-                               if str(v).strip() not in ('', 'nan', 'None')]
+                    # Extraer OT, equipo y actividad del día
+                    if not df_dia.empty:
+                        # Usar columna 'OT' (existe gracias a la corrección del merge)
+                        ots = [fmt_ot(v) for v in df_dia['OT'].dropna() if str(v).strip() not in ('', 'nan', 'None')]
                         ot_str = " / ".join(ots) if ots else ""
+                        equipos = [str(v) for v in df_dia['EQUIPO_ASIGNADO'].dropna() if str(v).strip() not in ('', 'nan', 'None')]
+                        equipo_str = " / ".join(equipos) if equipos else ""
+                        actividades = [str(v) for v in df_dia['ACTIVIDAD'].dropna() if str(v).strip() not in ('', 'nan', 'None')]
+                        actividad_str = " / ".join(actividades) if actividades else ""
                     else:
-                        ot_str = ""
+                        ot_str = equipo_str = actividad_str = ""
 
                     ws1.row_dimensions[current_row].height = 14
-
-                    # Columna SEMANA: solo en la primera fila del bloque de semana
                     if primera_fila_semana:
-                        cs(ws1, current_row, 1, semana_label, size=9,
-                           bg=bg_row, border=thin_border, h_align="center", wrap=True)
+                        cs(ws1, current_row, 1, semana_label, size=9, bg=bg_row, border=thin_border, h_align="center", wrap=True)
                         primera_fila_semana = False
                     else:
                         cs(ws1, current_row, 1, "", size=9, bg=bg_row, border=thin_border)
 
-                    cs(ws1, current_row, 2, dia_nombre, size=9,
-                       bg=bg_row, border=thin_border, bold=(dow in DIAS_100))
+                    cs(ws1, current_row, 2, dia_nombre, size=9, bg=bg_row, border=thin_border, bold=(dow in DIAS_100))
 
-                    # 50% días hábiles / 100% fin de semana
                     if dow in DIAS_100:
-                        h50_val  = 0.0
-                        h100_val = h_horas
+                        h50_val, h100_val = 0.0, h_horas
                     else:
-                        h50_val  = h_horas
-                        h100_val = 0.0
+                        h50_val, h100_val = h_horas, 0.0
 
-                    cs(ws1, current_row, 3,
-                       round(h50_val, 2) if h50_val > 0 else "",
-                       size=9, bg=bg_row, border=thin_border,
-                       number_format='0.00' if h50_val > 0 else None)
-                    cs(ws1, current_row, 4,
-                       round(h100_val, 2) if h100_val > 0 else "",
-                       size=9, bg=bg_row, border=thin_border,
-                       number_format='0.00' if h100_val > 0 else None)
-                    cs(ws1, current_row, 5, ot_str,
-                       size=9, bg=bg_row, border=thin_border,
-                       h_align="left", wrap=True)
+                    cs(ws1, current_row, 3, round(h50_val, 2) if h50_val > 0 else "",
+                       size=9, bg=bg_row, border=thin_border, number_format='0.00' if h50_val > 0 else None)
+                    cs(ws1, current_row, 4, round(h100_val, 2) if h100_val > 0 else "",
+                       size=9, bg=bg_row, border=thin_border, number_format='0.00' if h100_val > 0 else None)
+                    cs(ws1, current_row, 5, ot_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
+                    cs(ws1, current_row, 6, equipo_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
+                    cs(ws1, current_row, 7, actividad_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
 
-                    total_h50_sem  += h50_val
+                    total_h50_sem += h50_val
                     total_h100_sem += h100_val
-
                     current_row += 1
 
-                # Subtotal de la semana
+                # Subtotal semana
                 ws1.row_dimensions[current_row].height = 14
                 cs(ws1, current_row, 1, "SUBTOTAL SEMANA", bold=True, size=9,
                    bg=SUM_BLUE, border=thin_border, h_align="right")
                 cs(ws1, current_row, 2, "", size=9, bg=SUM_BLUE, border=thin_border)
-                cs(ws1, current_row, 3, round(total_h50_sem, 2) if total_h50_sem > 0 else 0,
-                   bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
-                cs(ws1, current_row, 4, round(total_h100_sem, 2) if total_h100_sem > 0 else 0,
-                   bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
-                cs(ws1, current_row, 5, "",
-                   size=9, bg=SUM_BLUE, border=thin_border)
+                cs(ws1, current_row, 3, round(total_h50_sem, 2), bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
+                cs(ws1, current_row, 4, round(total_h100_sem, 2), bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
+                for ci in [5,6,7]:
+                    cs(ws1, current_row, ci, "", size=9, bg=SUM_BLUE, border=thin_border)
                 current_row += 1
 
-                total_h50_tec  += total_h50_sem
+                total_h50_tec += total_h50_sem
                 total_h100_tec += total_h100_sem
 
-            # Total del técnico
+            # Total técnico
             ws1.row_dimensions[current_row].height = 16
             cs(ws1, current_row, 1, f"TOTAL  {tecnico.upper()}", bold=True, size=10,
                bg=TOTAL_GREEN, border=thick_border, h_align="left")
-            cs(ws1, current_row, 2, "", bold=True, size=10,
-               bg=TOTAL_GREEN, border=thick_border)
-            cs(ws1, current_row, 3, round(total_h50_tec, 2),
-               bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
-            cs(ws1, current_row, 4, round(total_h100_tec, 2),
-               bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
-            cs(ws1, current_row, 5, "",
-               bold=True, size=10, bg=TOTAL_GREEN, border=thick_border)
-            current_row += 2  # separador entre técnicos
+            cs(ws1, current_row, 2, "", bold=True, size=10, bg=TOTAL_GREEN, border=thick_border)
+            cs(ws1, current_row, 3, round(total_h50_tec, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+            cs(ws1, current_row, 4, round(total_h100_tec, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+            for ci in [5,6,7]:
+                cs(ws1, current_row, ci, "", bold=True, size=10, bg=TOTAL_GREEN, border=thick_border)
+            current_row += 2
 
-        # ══════════════════════════════════════════════════════════════════
-        # HOJA 2: "Resumen por Técnico"
-        # ══════════════════════════════════════════════════════════════════
+        # Hoja 2: Resumen por Técnico
         ws2 = wb.create_sheet("Resumen por Técnico")
-
         col_w2 = {1: 35, 2: 20, 3: 20, 4: 18, 5: 18}
         for ci, w in col_w2.items():
             ws2.column_dimensions[get_column_letter(ci)].width = w
-
         ws2.row_dimensions[1].height = 22
         ms(ws2, 1, 1, 1, 5,
            value="RESUMEN DE HORAS EXTRAS POR TÉCNICO",
            bold=True, size=13, color=WHITE, bg=FORTIDEX_BLUE,
            h_align="center", border=thick_border)
-
         ws2.row_dimensions[2].height = 15
         ms(ws2, 2, 1, 2, 5,
            value=f"Período: {fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}",
@@ -1611,7 +1627,6 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
             cs(ws2, 3, ci, hdr, bold=True, size=10, color=WHITE,
                bg=FORTIDEX_ORANGE, border=thin_border)
 
-        # Calcular resumen agrupado
         def calc_resumen_tecnico(df_t):
             rows = []
             for tec, grp in df_t.groupby('RESPONSABLE'):
@@ -1624,48 +1639,31 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
 
         resumen_df = calc_resumen_tecnico(df_valid)
         gt_h50 = gt_h100 = gt_htot = gt_val = 0.0
-
         for i_r, (_, row_r) in enumerate(resumen_df.iterrows()):
-            ri  = i_r + 4
+            ri = i_r + 4
             bgr = WHITE if i_r % 2 == 0 else ROW_GRAY
             ws2.row_dimensions[ri].height = 14
-
-            cs(ws2, ri, 1, str(row_r['TECNICO']), size=10, bg=bgr,
-               h_align="left", border=thin_border)
-            cs(ws2, ri, 2, round(row_r['H50'],  2), size=10, bg=bgr,
-               border=thin_border, number_format='0.00')
-            cs(ws2, ri, 3, round(row_r['H100'], 2), size=10, bg=bgr,
-               border=thin_border, number_format='0.00')
-            cs(ws2, ri, 4, round(row_r['HTOT'], 2), size=10, bg=bgr,
-               border=thin_border, number_format='0.00')
-            cs(ws2, ri, 5, round(row_r['VALOR'], 2), size=10, bg=bgr,
-               border=thin_border, number_format='"$"#,##0.00')
-
-            gt_h50  += row_r['H50']
-            gt_h100 += row_r['H100']
-            gt_htot += row_r['HTOT']
-            gt_val  += row_r['VALOR']
+            cs(ws2, ri, 1, str(row_r['TECNICO']), size=10, bg=bgr, h_align="left", border=thin_border)
+            cs(ws2, ri, 2, round(row_r['H50'], 2), size=10, bg=bgr, border=thin_border, number_format='0.00')
+            cs(ws2, ri, 3, round(row_r['H100'], 2), size=10, bg=bgr, border=thin_border, number_format='0.00')
+            cs(ws2, ri, 4, round(row_r['HTOT'], 2), size=10, bg=bgr, border=thin_border, number_format='0.00')
+            cs(ws2, ri, 5, round(row_r['VALOR'], 2), size=10, bg=bgr, border=thin_border, number_format='"$"#,##0.00')
+            gt_h50 += row_r['H50']; gt_h100 += row_r['H100']; gt_htot += row_r['HTOT']; gt_val += row_r['VALOR']
 
         ri_tot = len(resumen_df) + 4
         ws2.row_dimensions[ri_tot].height = 16
         cs(ws2, ri_tot, 1, "TOTAL GENERAL", bold=True, size=10,
            bg=TOTAL_GREEN, h_align="left", border=thick_border)
-        cs(ws2, ri_tot, 2, round(gt_h50,  2), bold=True, size=10,
-           bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
-        cs(ws2, ri_tot, 3, round(gt_h100, 2), bold=True, size=10,
-           bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
-        cs(ws2, ri_tot, 4, round(gt_htot, 2), bold=True, size=10,
-           bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
-        cs(ws2, ri_tot, 5, round(gt_val,  2), bold=True, size=10,
-           bg=TOTAL_GREEN, border=thick_border, number_format='"$"#,##0.00')
+        cs(ws2, ri_tot, 2, round(gt_h50, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+        cs(ws2, ri_tot, 3, round(gt_h100, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+        cs(ws2, ri_tot, 4, round(gt_htot, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+        cs(ws2, ri_tot, 5, round(gt_val, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='"$"#,##0.00')
 
-        # ══════════════════════════════════════════════════════════════════
-        # HOJA 3: "Detalle Registros"
-        # ══════════════════════════════════════════════════════════════════
+        # Hoja 3: Detalle Registros
         ws3 = wb.create_sheet("Detalle Registros")
-
         raw_cols = ['RESPONSABLE', 'OT_FMT', 'SEMANA_STR', 'INICIO_HORAS_EXTRAS',
-                    'FIN_HORAS_EXTRAS', 'HORAS_EXTRAS', 'SALDO_HORAS_EXTRAS']
+                    'FIN_HORAS_EXTRAS', 'HORAS_EXTRAS', 'SALDO_HORAS_EXTRAS',
+                    'EQUIPO_ASIGNADO', 'ACTIVIDAD']
         raw_cols = [c for c in raw_cols if c in df_valid.columns]
 
         raw_names = {
@@ -1673,10 +1671,10 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
             'SEMANA_STR': 'Semana',
             'INICIO_HORAS_EXTRAS': 'Fecha/Hora Inicio',
             'FIN_HORAS_EXTRAS': 'Fecha/Hora Fin',
-            'HORAS_EXTRAS': 'Horas Extras', 'SALDO_HORAS_EXTRAS': 'Valor ($)'
+            'HORAS_EXTRAS': 'Horas Extras', 'SALDO_HORAS_EXTRAS': 'Valor ($)',
+            'EQUIPO_ASIGNADO': 'Equipo Asignado', 'ACTIVIDAD': 'Actividad'
         }
-        raw_widths = [35, 12, 12, 22, 22, 15, 15]
-
+        raw_widths = [35, 12, 12, 22, 22, 15, 15, 35, 45]
         for ci, (rc, rw) in enumerate(zip(raw_cols, raw_widths), start=1):
             ws3.column_dimensions[get_column_letter(ci)].width = rw
             cs(ws3, 1, ci, raw_names.get(rc, rc),
@@ -1693,9 +1691,8 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
                 elif rc == 'SALDO_HORAS_EXTRAS':
                     val = round(float(val), 2) if pd.notna(val) else 0
                 cs(ws3, ri, ci, val, size=9, bg=bgr, border=thin_border,
-                   h_align="left" if ci == 1 else "center")
+                   h_align="left" if ci in [1,2,5,8,9] else "center")
 
-        # Guardar y retornar bytes
         output = io.BytesIO()
         wb.save(output)
         return output.getvalue()
@@ -1708,7 +1705,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin):
 
 
 # ============================================
-# INTERFAZ PRINCIPAL
+# INTERFAZ PRINCIPAL (DASHBOARD)
 # ============================================
 
 def main():
@@ -1894,7 +1891,7 @@ def main():
         total_planificadas_mes_actual = get_total_planificadas_mes_actual(st.session_state.data, year=2026)
         ordenes_mes_actual = get_ordenes_mes_actual(st.session_state.data)
         
-        # ── TAB 1: Planta ──────────────────────────────────────────────────
+        # ==================== TAB 1: PLANTA ====================
         with tab1:
             st.header("🏭 Dashboard de Planta - Vista Consolidada")
             if not filtered_data.empty:
@@ -2008,23 +2005,22 @@ def main():
                         st.error("❌ Crítico")
                 
                 st.subheader("📈 Métricas Operativas")
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
+                col1a, col2a, col3a, col4a = st.columns(4)
+                with col1a:
                     td = metrics.get('td', 0)
                     st.metric("Tiempo Disponible", f"{td:,.0f}", "minutos",
                              help=f"Calculado para {num_dias} días entre {fecha_inicio_str} y {fecha_fin_str}")
-                with col2:
+                with col2a:
                     st.metric("Tiempo Operativo", f"{metrics.get('to', 0):,.0f}", "minutos")
-                with col3:
+                with col3a:
                     st.metric("TFS Total", f"{metrics.get('tfs', 0):,.0f}", "minutos")
-                with col4:
+                with col4a:
                     horas_extras = metrics.get('horas_extras_acumuladas', 0)
                     st.metric("Horas Extras Acum", f"{horas_extras/60:,.1f}", "horas")
                 
                 st.subheader("📊 Evolución de Indicadores")
-                col1, col2 = st.columns(2)
-                
-                with col1:
+                col1b, col2b = st.columns(2)
+                with col1b:
                     if not weekly_data.empty and 'DISPO_SEMANAL' in weekly_data.columns:
                         try:
                             fig = px.line(weekly_data, x='SEMANA_STR', y='DISPO_SEMANAL', 
@@ -2040,8 +2036,7 @@ def main():
                             st.error(f"Error al crear gráfico de disponibilidad: {str(e)[:100]}")
                     else:
                         st.info("No hay datos de disponibilidad semanal")
-                
-                with col2:
+                with col2b:
                     if not weekly_data.empty:
                         try:
                             fig = go.Figure()
@@ -2061,8 +2056,8 @@ def main():
                     else:
                         st.info("No hay datos de TFS y TR semanal")
                 
-                col1, col2 = st.columns(2)
-                with col1:
+                col1c, col2c = st.columns(2)
+                with col1c:
                     if not weekly_emergency_data.empty and 'NUM_ORDENES_EMERGENCIA' in weekly_emergency_data.columns:
                         fig = px.bar(weekly_emergency_data, x='SEMANA_STR', y='NUM_ORDENES_EMERGENCIA',
                                     title='🚨 Correctivos de Emergencia por Semana',
@@ -2071,8 +2066,7 @@ def main():
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("No hay datos de correctivos de emergencia")
-                
-                with col2:
+                with col2c:
                     if not weekly_data.empty and 'TFC_MIN' in weekly_data.columns:
                         fig = go.Figure()
                         fig.add_trace(go.Scatter(x=weekly_data['SEMANA_STR'], y=weekly_data['TFC_MIN'],
@@ -2085,9 +2079,8 @@ def main():
                         st.info("No hay datos de TFC semanal")
                 
                 st.subheader("🔍 Análisis por Equipo y Conjunto")
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
+                col1d, col2d, col3d, col4d = st.columns(4)
+                with col1d:
                     filtered_afecta = filtered_data[filtered_data['PRODUCCION_AFECTADA'] == 'SI']
                     if not filtered_afecta.empty and 'EQUIPO' in filtered_afecta.columns and 'TFS_MIN' in filtered_afecta.columns:
                         tfs_por_equipo = filtered_afecta.groupby('EQUIPO')['TFS_MIN'].sum().reset_index()
@@ -2099,8 +2092,7 @@ def main():
                                         color='TFS_MIN', color_continuous_scale='Reds')
                             fig.update_layout(showlegend=False)
                             st.plotly_chart(fig, use_container_width=True)
-                
-                with col2:
+                with col2d:
                     if not filtered_afecta.empty and 'CONJUNTO' in filtered_afecta.columns and 'TR_MIN' in filtered_afecta.columns:
                         tr_por_conjunto = filtered_afecta.groupby('CONJUNTO')['TR_MIN'].sum().reset_index()
                         tr_por_conjunto = tr_por_conjunto.nlargest(5, 'TR_MIN')
@@ -2111,8 +2103,7 @@ def main():
                                         color='TR_MIN', color_continuous_scale='Oranges')
                             fig.update_layout(showlegend=False)
                             st.plotly_chart(fig, use_container_width=True)
-                
-                with col3:
+                with col3d:
                     if 'TIPO DE MTTO' in filtered_data.columns:
                         tipo_mtto_counts = filtered_data['TIPO DE MTTO'].value_counts().reset_index()
                         tipo_mtto_counts.columns = ['TIPO_MTTO', 'COUNT']
@@ -2122,8 +2113,7 @@ def main():
                                         color_discrete_sequence=px.colors.qualitative.Set3)
                             fig.update_traces(textposition='inside', textinfo='percent+label')
                             st.plotly_chart(fig, use_container_width=True)
-                
-                with col4:
+                with col4d:
                     if not accumulated_costs.empty and 'COSTO_TOTAL' in accumulated_costs.columns:
                         top_tecnicos = accumulated_costs.nlargest(5, 'COSTO_TOTAL')
                         if not top_tecnicos.empty:
@@ -2135,11 +2125,9 @@ def main():
                             st.plotly_chart(fig, use_container_width=True)
                 
                 st.subheader("📅 Cumplimiento del Plan 2026")
-                
                 if not monthly_plan_data.empty and 'ORDENES_CULMINADAS' in monthly_plan_data.columns:
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
+                    col1e, col2e = st.columns(2)
+                    with col1e:
                         fig = go.Figure()
                         fig.add_trace(go.Bar(x=monthly_plan_data['MES_NOMBRE'],
                                             y=monthly_plan_data['ORDENES_RETRASADAS'],
@@ -2153,8 +2141,7 @@ def main():
                         fig.update_layout(barmode='stack', title='📊 Estado de Órdenes por Mes',
                                         xaxis_title='Mes', yaxis_title='Número de Órdenes', height=400)
                         st.plotly_chart(fig, use_container_width=True)
-                    
-                    with col2:
+                    with col2e:
                         if 'CUMPLIMIENTO_PCT' in monthly_plan_data.columns:
                             fig = px.line(monthly_plan_data, x='MES_NOMBRE', y='CUMPLIMIENTO_PCT',
                                         title='📈 Porcentaje de Cumplimiento',
@@ -2168,19 +2155,18 @@ def main():
                             st.plotly_chart(fig, use_container_width=True)
                 
                 st.subheader("📋 Resumen Estadístico")
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
+                col1f, col2f, col3f, col4f = st.columns(4)
+                with col1f:
                     total_fallas = reliability_metrics.get('total_fallas_emergency', 0) if reliability_metrics else 0
                     st.metric("Total Fallas", f"{total_fallas}",
                             help="Número de correctivos de emergencia")
-                with col2:
+                with col2f:
                     tr_horas = accumulated_tech_data['TR_HORAS'].sum() if not accumulated_tech_data.empty and 'TR_HORAS' in accumulated_tech_data.columns else 0
                     st.metric("Horas Normales Técnicos", f"{tr_horas:,.1f}", "horas")
-                with col3:
+                with col3f:
                     costo_total = accumulated_costs['COSTO_TOTAL'].sum() if not accumulated_costs.empty and 'COSTO_TOTAL' in accumulated_costs.columns else 0
                     st.metric("Costo Total Horas Extras", f"${costo_total:,.2f}")
-                with col4:
+                with col4f:
                     td = metrics.get('td', 0)
                     to = metrics.get('to', 0)
                     eficiencia_global = (to / td * 100) if td > 0 else 0
@@ -2188,7 +2174,7 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # ── TAB 2: TFS ────────────────────────────────────────────────────
+        # ==================== TAB 2: TFS ====================
         with tab2:
             st.header("Análisis de TFS")
             if not filtered_data.empty:
@@ -2254,7 +2240,7 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # ── TAB 3: TR ─────────────────────────────────────────────────────
+        # ==================== TAB 3: TR ====================
         with tab3:
             st.header("Análisis de TR")
             if not filtered_data.empty:
@@ -2318,7 +2304,7 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # ── TAB 4: TFC ────────────────────────────────────────────────────
+        # ==================== TAB 4: TFC ====================
         with tab4:
             st.header("Análisis de TFC")
             if not filtered_data.empty:
@@ -2382,7 +2368,7 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # ── TAB 5: Tipo de Mantenimiento ──────────────────────────────────
+        # ==================== TAB 5: TIPO DE MANTENIMIENTO ====================
         with tab5:
             st.header("Análisis por Tipo de Mantenimiento")
             if not filtered_data.empty:
@@ -2488,7 +2474,7 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # ── TAB 6: Confiabilidad ──────────────────────────────────────────
+        # ==================== TAB 6: CONFIABILIDAD ====================
         with tab6:
             st.header("Indicadores de Confiabilidad")
             if not filtered_data.empty:
@@ -2561,7 +2547,7 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados")
         
-        # ── TAB 7: Horas Personal Técnico ─────────────────────────────────
+        # ==================== TAB 7: HORAS PERSONAL TÉCNICO ====================
         with tab7:
             st.header("👷 Análisis de Horas del Personal Técnico")
             if not filtered_data.empty:
@@ -2636,7 +2622,7 @@ def main():
             else:
                 st.info("No hay datos para mostrar con los filtros seleccionados.")
         
-        # ── TAB 8: Costos Horas Extras ────────────────────────────────────
+        # ==================== TAB 8: COSTOS HORAS EXTRAS ====================
         with tab8:
             st.header("💰 Costos de Horas Extras del Personal Técnico (desde DETALLE_HE)")
             if not filtered_overtime.empty:
@@ -2704,7 +2690,7 @@ def main():
             else:
                 st.info("No hay datos de horas extras para el período seleccionado.")
         
-        # ── TAB 9: Cumplimiento del Plan ──────────────────────────────────
+        # ==================== TAB 9: CUMPLIMIENTO DEL PLAN ====================
         with tab9:
             st.header("📋 Cumplimiento del Plan de Mantenimiento 2026")
             
@@ -2791,21 +2777,21 @@ def main():
                 if not ordenes_mes_actual.empty:
                     resumen_categorias = ordenes_mes_actual['CATEGORIA'].value_counts().reset_index()
                     resumen_categorias.columns = ['Categoría', 'Cantidad']
-                    orden_categorias = ['RETRASADA', 'EN EJECUCIÓN', 'POR EJECUTAR EN ENERO', 'EJECUTADA']
-                    resumen_categorias['Categoría'] = pd.Categorical(resumen_categorias['Categoría'], categories=orden_categorias, ordered=True)
-                    resumen_categorias = resumen_categorias.sort_values('Categoría')
+                    resumen_categorias = resumen_categorias.sort_values('Cantidad', ascending=False)
                     
                     cols_resumen = st.columns(4)
                     for idx, (_, row) in enumerate(resumen_categorias.iterrows()):
                         with cols_resumen[idx % 4]:
-                            if row['Categoría'] == 'RETRASADA':
+                            if 'RETRASADA' in row['Categoría']:
                                 st.metric("Órdenes Retrasadas", f"{row['Cantidad']}", delta_color="inverse")
-                            elif row['Categoría'] == 'EN EJECUCIÓN':
+                            elif 'EN EJECUCIÓN' in row['Categoría']:
                                 st.metric("Órdenes en Ejecución", f"{row['Cantidad']}")
-                            elif row['Categoría'] == 'POR EJECUTAR EN ENERO':
-                                st.metric("Por Ejecutar en Enero", f"{row['Cantidad']}")
-                            elif row['Categoría'] == 'EJECUTADA':
+                            elif 'POR EJECUTAR' in row['Categoría']:
+                                st.metric(row['Categoría'], f"{row['Cantidad']}")
+                            elif 'EJECUTADA' in row['Categoría']:
                                 st.metric("Órdenes Ejecutadas", f"{row['Cantidad']}")
+                            else:
+                                st.metric(row['Categoría'], f"{row['Cantidad']}")
                     
                     columna_ot = None
                     for nombre in ['OT', 'N° DE OT', 'N° DE ORDEN', 'NUMERO DE ORDEN', 'N° OT', 'ORDEN']:
@@ -2832,10 +2818,10 @@ def main():
                             tabla_mostrar = tabla_mostrar[nuevas_columnas]
                         
                         def color_categoria(val):
-                            if val == 'RETRASADA': return 'background-color: #FFA500; color: black; font-weight: bold'
-                            elif val == 'EN EJECUCIÓN': return 'background-color: #FFD700; color: black; font-weight: bold'
-                            elif val == 'POR EJECUTAR EN ENERO': return 'background-color: #52b3f3; color: black; font-weight: bold'
-                            elif val == 'EJECUTADA': return 'background-color: #32CD32; color: black; font-weight: bold'
+                            if 'RETRASADA' in val: return 'background-color: #FFA500; color: black; font-weight: bold'
+                            elif 'EN EJECUCIÓN' in val: return 'background-color: #FFD700; color: black; font-weight: bold'
+                            elif 'POR EJECUTAR' in val: return 'background-color: #52b3f3; color: black; font-weight: bold'
+                            elif 'EJECUTADA' in val: return 'background-color: #32CD32; color: black; font-weight: bold'
                             return ''
                         
                         styled_table = tabla_mostrar.style.applymap(color_categoria, subset=['CATEGORIA'])
@@ -2864,13 +2850,12 @@ def main():
                                   yaxis_range=[0, 105], height=400, showlegend=True)
                 st.plotly_chart(fig2, use_container_width=True)
         
-        # ── TAB 10: Reporte Horas Extras ──────────────────────────────────
+        # ==================== TAB 10: REPORTE HORAS EXTRAS ====================
         with tab10:
             st.header("📊 Reporte de Horas Extras")
             st.markdown("""
             > El reporte se genera en formato **Reporte de Justificación de Sobretiempo** de Fortidex,
-            > organizado por semana y empleado, con columnas de **H. ENTRADA**, **H. SALIDA**, **50%**, **100%**
-            > y **ACTIVIDAD/JUSTIFICACIÓN**, igual al documento oficial de la empresa.
+            > organizado por semana y empleado, con columnas de **SEMANA**, **DÍA**, **CANT. HORAS 50%**, **CANT. HORAS 100%**, **N° OT**, **EQUIPO ASIGNADO** y **ACTIVIDAD**.
             """)
             
             st.subheader("🔍 Filtros para el Reporte")
@@ -2928,7 +2913,6 @@ def main():
                 st.subheader("👁️ Vista Previa de los Datos")
                 preview_cols = ['RESPONSABLE', 'OT', 'INICIO_HORAS_EXTRAS', 'HORAS_EXTRAS', 'SALDO_HORAS_EXTRAS']
                 existing_cols = [col for col in preview_cols if col in filtered_overtime_report.columns]
-                
                 if existing_cols:
                     preview_df = filtered_overtime_report[existing_cols].copy()
                     if 'OT' in preview_df.columns:
@@ -2962,14 +2946,12 @@ def main():
                     if len(preview_df) > 20:
                         st.info(f"Mostrando 20 de {len(preview_df)} registros. El reporte completo se incluirá en el archivo Excel.")
                 
-                # ── Descarga del Excel ──────────────────────────────────────
                 st.subheader("📥 Descargar Reporte en Excel")
-                
                 st.markdown("""
                 ### **El archivo Excel generado incluye:**
                 | Hoja | Contenido |
                 |------|-----------|
-                | **Reporte Sobretiempo** | Formato oficial Fortidex: encabezado institucional, tabla por empleado con DIA, FECHA, H. ENTRADA, H. SALIDA, 50%, 100%, ACTIVIDAD — organizado por semana |
+                | **HE Semanal por Técnico** | Tabla por técnico con SEMANA, DÍA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD |
                 | **Resumen por Técnico** | Totales de horas y valor en dólares por técnico |
                 | **Detalle Registros** | Datos crudos completos de la hoja DETALLE_HE |
                 """)
@@ -2977,7 +2959,8 @@ def main():
                 if st.button("⬇️ Generar y Descargar Reporte Excel", type="primary"):
                     with st.spinner("Generando reporte en formato Fortidex..."):
                         excel_data = generate_overtime_report_excel(
-                            filtered_overtime_report, report_fecha_inicio, report_fecha_fin
+                            filtered_overtime_report, report_fecha_inicio, report_fecha_fin,
+                            ordenes_df=st.session_state.data
                         )
                         
                         if excel_data:
