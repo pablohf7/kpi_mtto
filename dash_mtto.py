@@ -37,6 +37,27 @@ USUARIOS = {
         "nombre": "Técnico",
         "password_hash": hashlib.sha256("tec123".encode()).hexdigest(),
         "rol": "tecnico"
+    },
+    "tecnico.data@fortidex.com":{
+        "nombre": "tecnico.data",
+        "password_hash":hashlib.sha256("data123".encode()).hexdigest(),
+        "rol": "tecnico"
+    },
+    "b.aguirre@fortidex.com":{
+        
+        "nombre": "b.aguirre",
+        "password_hash":hashlib.sha256("aguirre123".encode()).hexdigest(),
+        "rol": "gerente"
+    },
+    "m.holguin@fortidex.com":{
+        "nombre": "m.holguin",
+        "password_hash":hashlib.sha256("holguin123".encode()).hexdigest(),
+        "rol": "gerente"
+    },
+    "rrhh.taura@fortidex.com":{
+        "nombre": "rrhh.taura",
+        "password_hash":hashlib.sha256("rrhh123".encode()).hexdigest(),
+        "rol": "rrhh"
     }
 }
 
@@ -1122,37 +1143,38 @@ def get_total_planificadas_mes_actual(df, year=2026):
     
     return len(df_plan_mes_actual)
 
-def get_ordenes_mes_actual(df):
+# ============================================
+# NUEVA FUNCIÓN: OBTENER TODAS LAS ÓRDENES CREADAS
+# ============================================
+def get_ordenes_creadas(df, year=2026):
+    """
+    Devuelve todas las órdenes planificadas (PREVENTIVO, BASADO EN CONDICIÓN, MEJORA DE SISTEMA)
+    para el año especificado (por defecto 2026), sin filtrar por mes actual.
+    """
     if df.empty:
         return pd.DataFrame()
     
-    mes_actual = datetime.now().month
-    año_actual = datetime.now().year
-    
     tipos_planificados = ['PREVENTIVO', 'BASADO EN CONDICIÓN', 'MEJORA DE SISTEMA']
     df_plan = df[df['TIPO DE MTTO'].isin(tipos_planificados)].copy()
+    df_plan = df_plan[df_plan['FECHA_DE_INICIO'].dt.year == year]
     
-    df_mes_actual = df_plan[
-        (df_plan['FECHA_DE_INICIO'].dt.year == año_actual) &
-        (df_plan['FECHA_DE_INICIO'].dt.month == mes_actual)
-    ]
-    
-    if df_mes_actual.empty:
+    if df_plan.empty:
         return pd.DataFrame()
     
-    if 'STATUS' not in df_mes_actual.columns:
-        df_mes_actual['STATUS_NORM'] = 'CULMINADO'
+    # Normalizar estado
+    if 'STATUS' not in df_plan.columns:
+        df_plan['STATUS_NORM'] = 'CULMINADO'
     else:
-        df_mes_actual['STATUS_NORM'] = df_mes_actual['STATUS'].astype(str).str.upper().str.strip()
-        df_mes_actual.loc[df_mes_actual['STATUS_NORM'].str.contains('CULMINAD'), 'STATUS_NORM'] = 'CULMINADO'
-        df_mes_actual.loc[df_mes_actual['STATUS_NORM'].str.contains('PROCESO') | 
-                         df_mes_actual['STATUS_NORM'].str.contains('PROGRESO') |
-                         df_mes_actual['STATUS_NORM'].str.contains('EJECUCI'), 'STATUS_NORM'] = 'EN PROCESO'
-        df_mes_actual.loc[df_mes_actual['STATUS_NORM'].str.contains('PENDIENTE'), 'STATUS_NORM'] = 'PENDIENTE'
+        df_plan['STATUS_NORM'] = df_plan['STATUS'].astype(str).str.upper().str.strip()
+        df_plan.loc[df_plan['STATUS_NORM'].str.contains('CULMINAD'), 'STATUS_NORM'] = 'CULMINADO'
+        df_plan.loc[df_plan['STATUS_NORM'].str.contains('PROCESO') | 
+                    df_plan['STATUS_NORM'].str.contains('PROGRESO') |
+                    df_plan['STATUS_NORM'].str.contains('EJECUCI'), 'STATUS_NORM'] = 'EN PROCESO'
+        df_plan.loc[df_plan['STATUS_NORM'].str.contains('PENDIENTE'), 'STATUS_NORM'] = 'PENDIENTE'
     
     fecha_actual = datetime.now().date()
-    df_mes_actual['FECHA_INICIO_DATE'] = df_mes_actual['FECHA_DE_INICIO'].dt.date
-    df_mes_actual['FECHA_FIN_DATE'] = df_mes_actual['FECHA_DE_FIN'].dt.date
+    df_plan['FECHA_INICIO_DATE'] = df_plan['FECHA_DE_INICIO'].dt.date
+    df_plan['FECHA_FIN_DATE'] = df_plan['FECHA_DE_FIN'].dt.date
     
     meses_es = {
         1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL',
@@ -1175,130 +1197,68 @@ def get_ordenes_mes_actual(df):
         else:
             return 'OTROS'
     
-    df_mes_actual['CATEGORIA'] = df_mes_actual.apply(asignar_categoria, axis=1)
-    df_mes_actual = df_mes_actual.sort_values('FECHA_DE_INICIO', ascending=True)
+    df_plan['CATEGORIA'] = df_plan.apply(asignar_categoria, axis=1)
+    df_plan = df_plan.sort_values('FECHA_DE_INICIO', ascending=True)
     
     df_resultado = pd.DataFrame()
     
     columna_ot = None
     posibles_nombres = ['OT', 'N° DE OT', 'N° DE ORDEN', 'NUMERO DE ORDEN', 'N° OT', 'ORDEN']
     for nombre in posibles_nombres:
-        if nombre in df_mes_actual.columns:
+        if nombre in df_plan.columns:
             columna_ot = nombre
             break
     
     if columna_ot:
         try:
-            df_mes_actual[columna_ot] = pd.to_numeric(df_mes_actual[columna_ot], errors='coerce')
-            df_mes_actual[columna_ot] = df_mes_actual[columna_ot].astype('Int64')
-            df_resultado['OT'] = df_mes_actual[columna_ot]
+            df_plan[columna_ot] = pd.to_numeric(df_plan[columna_ot], errors='coerce')
+            df_plan[columna_ot] = df_plan[columna_ot].astype('Int64')
+            df_resultado['OT'] = df_plan[columna_ot]
         except Exception as e:
-            df_resultado['OT'] = df_mes_actual[columna_ot]
+            df_resultado['OT'] = df_plan[columna_ot]
     else:
         df_resultado['OT'] = ''
     
-    if 'TIPO DE MTTO' in df_mes_actual.columns:
-        df_resultado['TIPO DE MTTO'] = df_mes_actual['TIPO DE MTTO']
+    if 'TIPO DE MTTO' in df_plan.columns:
+        df_resultado['TIPO DE MTTO'] = df_plan['TIPO DE MTTO']
     else:
         df_resultado['TIPO DE MTTO'] = ''
     
-    if 'EQUIPO' in df_mes_actual.columns:
-        df_resultado['EQUIPO'] = df_mes_actual['EQUIPO']
+    if 'EQUIPO' in df_plan.columns:
+        df_resultado['EQUIPO'] = df_plan['EQUIPO']
     else:
         df_resultado['EQUIPO'] = ''
     
-    if 'FECHA_DE_INICIO' in df_mes_actual.columns:
-        df_resultado['FECHA DE INICIO'] = df_mes_actual['FECHA_DE_INICIO'].dt.strftime('%d/%m/%Y')
+    if 'FECHA_DE_INICIO' in df_plan.columns:
+        df_resultado['FECHA DE INICIO'] = df_plan['FECHA_DE_INICIO'].dt.strftime('%d/%m/%Y')
     else:
         df_resultado['FECHA DE INICIO'] = ''
     
-    if 'FECHA_DE_FIN' in df_mes_actual.columns:
-        df_resultado['FECHA DE FIN'] = df_mes_actual['FECHA_DE_FIN'].dt.strftime('%d/%m/%Y')
+    if 'FECHA_DE_FIN' in df_plan.columns:
+        df_resultado['FECHA DE FIN'] = df_plan['FECHA_DE_FIN'].dt.strftime('%d/%m/%Y')
     else:
         df_resultado['FECHA DE FIN'] = ''
     
-    if 'STATUS' in df_mes_actual.columns:
-        df_resultado['ESTADO'] = df_mes_actual['STATUS']
+    if 'STATUS' in df_plan.columns:
+        df_resultado['ESTADO'] = df_plan['STATUS']
     else:
-        df_resultado['ESTADO'] = df_mes_actual['STATUS_NORM']
+        df_resultado['ESTADO'] = df_plan['STATUS_NORM']
     
-    df_resultado['CATEGORIA'] = df_mes_actual['CATEGORIA']
+    df_resultado['CATEGORIA'] = df_plan['CATEGORIA']
     
     return df_resultado
 
-def apply_filters(df, equipo_filter, conjunto_filter, ubicacion_filter, tipo_mtto_filter, fecha_inicio, fecha_fin):
-    filtered_df = df.copy()
-    
-    if equipo_filter != "Todos":
-        filtered_df = filtered_df[filtered_df['EQUIPO'].astype(str) == equipo_filter]
-    
-    if conjunto_filter != "Todos":
-        filtered_df = filtered_df[filtered_df['CONJUNTO'].astype(str) == conjunto_filter]
-    
-    if ubicacion_filter != "Todos":
-        if 'UBICACIÓN TÉCNICA' in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df['UBICACIÓN TÉCNICA'].astype(str) == ubicacion_filter]
-    
-    if tipo_mtto_filter != "Todos":
-        filtered_df = filtered_df[filtered_df['TIPO DE MTTO'].astype(str) == tipo_mtto_filter]
-    
-    if fecha_inicio is not None and fecha_fin is not None:
-        filtered_df = filtered_df[
-            (filtered_df['FECHA_DE_INICIO'].dt.date >= fecha_inicio) &
-            (filtered_df['FECHA_DE_INICIO'].dt.date <= fecha_fin)
-        ]
-    
-    return filtered_df
-
-def apply_overtime_filters(overtime_df, fecha_inicio, fecha_fin):
-    if overtime_df.empty:
-        return overtime_df
-    
-    filtered_overtime = overtime_df.copy()
-    
-    if fecha_inicio is not None and fecha_fin is not None:
-        inicio_datetime = datetime.combine(fecha_inicio, datetime.min.time())
-        fin_datetime = datetime.combine(fecha_fin, datetime.max.time())
-        
-        if 'INICIO_HORAS_EXTRAS' in filtered_overtime.columns:
-            if not pd.api.types.is_datetime64_any_dtype(filtered_overtime['INICIO_HORAS_EXTRAS']):
-                filtered_overtime['INICIO_HORAS_EXTRAS'] = pd.to_datetime(
-                    filtered_overtime['INICIO_HORAS_EXTRAS'], errors='coerce'
-                )
-            
-            filtered_overtime = filtered_overtime[
-                (filtered_overtime['INICIO_HORAS_EXTRAS'] >= inicio_datetime) &
-                (filtered_overtime['INICIO_HORAS_EXTRAS'] <= fin_datetime)
-            ]
-    
-    return filtered_overtime
-
-def get_current_datetime_spanish():
-    now = datetime.now()
-    months = [
-        "enero", "febrero", "marzo", "abril", "mayo", "junio",
-        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
-    ]
-    day = now.day
-    month = months[now.month - 1]
-    year = now.year
-    time_str = now.strftime("%H:%M:%S")
-    return f"{day} de {month} de {year}, {time_str}"
-
-def format_date_dd_mm_aaaa(date):
-    if isinstance(date, (datetime, pd.Timestamp)):
-        return date.strftime('%d/%m/%Y')
-    elif isinstance(date, str):
-        try:
-            return pd.to_datetime(date).strftime('%d/%m/%Y')
-        except:
-            return date
-    else:
-        return str(date)
-
 # ============================================
-# FUNCIÓN MEJORADA: GENERAR REPORTE EXCEL (CORREGIDO)
+# FUNCIONES PARA GENERAR EXCEL
 # ============================================
+def generate_ordenes_excel(ordenes_df):
+    """Genera archivo Excel con la tabla de órdenes creadas."""
+    if ordenes_df.empty:
+        return None
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        ordenes_df.to_excel(writer, sheet_name='Órdenes Creadas', index=False)
+    return output.getvalue()
 
 def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, ordenes_df=None):
     """
@@ -1345,7 +1305,6 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                 ordenes_df = ordenes_df.rename(columns={actividad_col: 'ACTIVIDAD'})
             
             # Hacer merge evitando conflicto con la columna 'OT' original
-            # Usamos sufijos para que la columna OT original se conserve como 'OT'
             df_enriched = df_enriched.merge(
                 ordenes_df[[col_ot_ordenes, 'EQUIPO_ASIGNADO', 'ACTIVIDAD']],
                 left_on='OT_KEY', right_on=col_ot_ordenes,
@@ -1446,7 +1405,6 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
 
         # Asegurar columna OT_FMT
         df['OT_FMT'] = df['OT'].apply(fmt_ot) if 'OT' in df.columns else ''
-        # Si no existe 'OT', crearla vacía para evitar errores
         if 'OT' not in df.columns:
             df['OT'] = ''
 
@@ -1542,9 +1500,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                     h_horas = float(df_dia['HORAS_EXTRAS'].sum()) if not df_dia.empty else 0.0
                     bg_row = WHITE if i_dia % 2 == 0 else ROW_GRAY
 
-                    # Extraer OT, equipo y actividad del día
                     if not df_dia.empty:
-                        # Usar columna 'OT' (existe gracias a la corrección del merge)
                         ots = [fmt_ot(v) for v in df_dia['OT'].dropna() if str(v).strip() not in ('', 'nan', 'None')]
                         ot_str = " / ".join(ots) if ots else ""
                         equipos = [str(v) for v in df_dia['EQUIPO_ASIGNADO'].dropna() if str(v).strip() not in ('', 'nan', 'None')]
@@ -1703,6 +1659,31 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
         st.error(traceback.format_exc())
         return None
 
+# ============================================
+# FUNCIONES AUXILIARES
+# ============================================
+def get_current_datetime_spanish():
+    now = datetime.now()
+    months = [
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+    ]
+    day = now.day
+    month = months[now.month - 1]
+    year = now.year
+    time_str = now.strftime("%H:%M:%S")
+    return f"{day} de {month} de {year}, {time_str}"
+
+def format_date_dd_mm_aaaa(date):
+    if isinstance(date, (datetime, pd.Timestamp)):
+        return date.strftime('%d/%m/%Y')
+    elif isinstance(date, str):
+        try:
+            return pd.to_datetime(date).strftime('%d/%m/%Y')
+        except:
+            return date
+    else:
+        return str(date)
 
 # ============================================
 # INTERFAZ PRINCIPAL (DASHBOARD)
@@ -1716,32 +1697,28 @@ def main():
     
     mostrar_info_usuario()
     
+    # Inicialización de estados
     if 'data' not in st.session_state:
         st.session_state.data = pd.DataFrame()
-    
     if 'personal_data' not in st.session_state:
         st.session_state.personal_data = pd.DataFrame()
-    
     if 'overtime_data' not in st.session_state:
         st.session_state.overtime_data = pd.DataFrame()
-    
     if 'last_update' not in st.session_state:
         st.session_state.last_update = None
     
+    # Carga de datos
     status_placeholder = st.empty()
-    
     if st.session_state.data.empty:
         with status_placeholder.container():
             with st.spinner("Cargando datos desde Google Sheets..."):
                 df = load_data_from_google_sheets()
-
                 if not df.empty:
                     st.session_state.data = df
                     st.session_state.last_update = get_current_datetime_spanish()
                     st.success("✅ Datos cargados correctamente desde Google Sheets")
                 else:
                     st.error("❌ No se pudieron cargar los datos desde Google Sheets")
-
         time.sleep(2)
         status_placeholder.empty()
     
@@ -1750,13 +1727,11 @@ def main():
         with status_personal.container():
             with st.spinner("Cargando datos del personal..."):
                 personal_df = load_personal_data_from_google_sheets()
-
                 if not personal_df.empty:
                     st.session_state.personal_data = personal_df
                     st.success("✅ Datos del personal cargados correctamente")
                 else:
                     st.warning("⚠️ No se pudieron cargar los datos del personal")
-
         time.sleep(1)
         status_personal.empty()
     
@@ -1765,13 +1740,11 @@ def main():
         with status_overtime.container():
             with st.spinner("Cargando datos de horas extras..."):
                 overtime_df = load_overtime_data_from_google_sheets()
-
                 if not overtime_df.empty:
                     st.session_state.overtime_data = overtime_df
                     st.success("✅ Datos de horas extras cargados correctamente")
                 else:
                     st.warning("⚠️ No se pudieron cargar los datos de horas extras")
-
         time.sleep(1)
         status_overtime.empty()
     
@@ -1814,7 +1787,6 @@ def main():
         with st.sidebar.expander("📊 Ver cálculo de tiempo disponible"):
             st.write(f"**Fórmula:** Número de días × 24 horas × 60 minutos")
             st.write(f"**Cálculo:** {num_dias} días × 24 horas × 60 minutos = {tiempo_disponible:,.0f} minutos")
-            st.write(f"**Ejemplo:** Para 27 días (2026-01-01 a 2026-01-27): 27 × 24 × 60 = 38,880 minutos")
         
         if 'UBICACIÓN TÉCNICA' in st.session_state.data.columns:
             ubicaciones_unique = st.session_state.data['UBICACIÓN TÉCNICA'].dropna().unique().tolist()
@@ -1844,6 +1816,7 @@ def main():
         
         tipo_mtto_filter = st.sidebar.selectbox("Tipo de Mtto", tipos_mtto, key="tipo_mtto_filter")
         
+        # Aplicar filtros
         filtered_data = apply_filters(st.session_state.data, equipo_filter, conjunto_filter, 
                                       ubicacion_filter, tipo_mtto_filter, fecha_inicio, fecha_fin)
         
@@ -1874,12 +1847,14 @@ def main():
         </style>
         """, unsafe_allow_html=True)
         
+        # Crear pestañas (DEFINICIÓN NECESARIA)
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
             "Planta", "TFS", "TR", "TFC", "Tipo de Mtto", "Confiabilidad", 
             "Horas Personal Técnico", "Costos Horas Extras Personal Técnico",
             "Cumplimiento del Plan", "Reporte Horas Extras"
         ])
         
+        # Calcular métricas necesarias para todas las pestañas
         metrics = calculate_metrics(filtered_data, fecha_inicio, fecha_fin, filtered_overtime)
         weekly_data = get_weekly_data(filtered_data, fecha_inicio, fecha_fin)
         reliability_metrics = calculate_reliability_metrics(filtered_data, fecha_inicio, fecha_fin)
@@ -1889,7 +1864,6 @@ def main():
         weekly_costs, accumulated_costs, mensaje_calculo = calculate_overtime_costs_from_details(filtered_overtime, st.session_state.personal_data)
         monthly_plan_data = get_monthly_plan_data(st.session_state.data, year=2026)
         total_planificadas_mes_actual = get_total_planificadas_mes_actual(st.session_state.data, year=2026)
-        ordenes_mes_actual = get_ordenes_mes_actual(st.session_state.data)
         
         # ==================== TAB 1: PLANTA ====================
         with tab1:
@@ -2018,6 +1992,7 @@ def main():
                     horas_extras = metrics.get('horas_extras_acumuladas', 0)
                     st.metric("Horas Extras Acum", f"{horas_extras/60:,.1f}", "horas")
                 
+                # Gráficos de evolución
                 st.subheader("📊 Evolución de Indicadores")
                 col1b, col2b = st.columns(2)
                 with col1b:
@@ -2690,7 +2665,7 @@ def main():
             else:
                 st.info("No hay datos de horas extras para el período seleccionado.")
         
-        # ==================== TAB 9: CUMPLIMIENTO DEL PLAN ====================
+        # ==================== TAB 9: CUMPLIMIENTO DEL PLAN (MODIFICADA) ====================
         with tab9:
             st.header("📋 Cumplimiento del Plan de Mantenimiento 2026")
             
@@ -2773,9 +2748,12 @@ def main():
                                   legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 st.plotly_chart(fig1, use_container_width=True)
                 
-                st.subheader("📋 Tabla de Órdenes del Mes Actual")
-                if not ordenes_mes_actual.empty:
-                    resumen_categorias = ordenes_mes_actual['CATEGORIA'].value_counts().reset_index()
+                # ===== NUEVA SECCIÓN: TABLA DE ÓRDENES CREADAS =====
+                st.subheader("📋 Tabla de Órdenes Creadas")
+                ordenes_creadas = get_ordenes_creadas(st.session_state.data, year=2026)
+                
+                if not ordenes_creadas.empty:
+                    resumen_categorias = ordenes_creadas['CATEGORIA'].value_counts().reset_index()
                     resumen_categorias.columns = ['Categoría', 'Cantidad']
                     resumen_categorias = resumen_categorias.sort_values('Cantidad', ascending=False)
                     
@@ -2795,14 +2773,14 @@ def main():
                     
                     columna_ot = None
                     for nombre in ['OT', 'N° DE OT', 'N° DE ORDEN', 'NUMERO DE ORDEN', 'N° OT', 'ORDEN']:
-                        if nombre in ordenes_mes_actual.columns:
+                        if nombre in ordenes_creadas.columns:
                             columna_ot = nombre
                             break
                     
                     if columna_ot:
                         columnas_solicitadas = [columna_ot, 'TIPO DE MTTO', 'EQUIPO', 'FECHA DE INICIO', 'FECHA DE FIN', 'ESTADO', 'CATEGORIA']
-                        columnas_existentes = [col for col in columnas_solicitadas if col in ordenes_mes_actual.columns]
-                        tabla_mostrar = ordenes_mes_actual[columnas_existentes].copy()
+                        columnas_existentes = [col for col in columnas_solicitadas if col in ordenes_creadas.columns]
+                        tabla_mostrar = ordenes_creadas[columnas_existentes].copy()
                         
                         if columna_ot in tabla_mostrar.columns:
                             try:
@@ -2827,12 +2805,19 @@ def main():
                         styled_table = tabla_mostrar.style.applymap(color_categoria, subset=['CATEGORIA'])
                         st.dataframe(styled_table, use_container_width=True, height=400, hide_index=True)
                         
-                        csv = tabla_mostrar.to_csv(index=False).encode('utf-8')
-                        st.download_button(label="📥 Descargar tabla como CSV", data=csv,
-                                          file_name=f"ordenes_mes_actual_{datetime.now().strftime('%Y%m%d')}.csv",
-                                          mime="text/csv")
+                        # Descargar en Excel
+                        excel_data = generate_ordenes_excel(tabla_mostrar)
+                        if excel_data:
+                            st.download_button(
+                                label="📥 Descargar tabla como Excel",
+                                data=excel_data,
+                                file_name=f"ordenes_creadas_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                        else:
+                            st.error("No se pudo generar el archivo Excel para descargar.")
                 else:
-                    st.info("No hay órdenes planificadas para el mes actual.")
+                    st.info("No hay órdenes planificadas para el año 2026.")
                 
                 st.subheader("📈 Cumplimiento por Mes")
                 fig2 = go.Figure()
@@ -2979,6 +2964,43 @@ def main():
                 st.warning("⚠️ No hay datos de horas extras para el período seleccionado.")
     else:
         st.info("Por favor, carga datos para comenzar.")
+
+# Función auxiliar para apply_filters (debe estar definida antes)
+def apply_filters(df, equipo_filter, conjunto_filter, ubicacion_filter, tipo_mtto_filter, fecha_inicio, fecha_fin):
+    filtered_df = df.copy()
+    if equipo_filter != "Todos":
+        filtered_df = filtered_df[filtered_df['EQUIPO'].astype(str) == equipo_filter]
+    if conjunto_filter != "Todos":
+        filtered_df = filtered_df[filtered_df['CONJUNTO'].astype(str) == conjunto_filter]
+    if ubicacion_filter != "Todos":
+        if 'UBICACIÓN TÉCNICA' in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df['UBICACIÓN TÉCNICA'].astype(str) == ubicacion_filter]
+    if tipo_mtto_filter != "Todos":
+        filtered_df = filtered_df[filtered_df['TIPO DE MTTO'].astype(str) == tipo_mtto_filter]
+    if fecha_inicio is not None and fecha_fin is not None:
+        filtered_df = filtered_df[
+            (filtered_df['FECHA_DE_INICIO'].dt.date >= fecha_inicio) &
+            (filtered_df['FECHA_DE_INICIO'].dt.date <= fecha_fin)
+        ]
+    return filtered_df
+
+def apply_overtime_filters(overtime_df, fecha_inicio, fecha_fin):
+    if overtime_df.empty:
+        return overtime_df
+    filtered_overtime = overtime_df.copy()
+    if fecha_inicio is not None and fecha_fin is not None:
+        inicio_datetime = datetime.combine(fecha_inicio, datetime.min.time())
+        fin_datetime = datetime.combine(fecha_fin, datetime.max.time())
+        if 'INICIO_HORAS_EXTRAS' in filtered_overtime.columns:
+            if not pd.api.types.is_datetime64_any_dtype(filtered_overtime['INICIO_HORAS_EXTRAS']):
+                filtered_overtime['INICIO_HORAS_EXTRAS'] = pd.to_datetime(
+                    filtered_overtime['INICIO_HORAS_EXTRAS'], errors='coerce'
+                )
+            filtered_overtime = filtered_overtime[
+                (filtered_overtime['INICIO_HORAS_EXTRAS'] >= inicio_datetime) &
+                (filtered_overtime['INICIO_HORAS_EXTRAS'] <= fin_datetime)
+            ]
+    return filtered_overtime
 
 if __name__ == "__main__":
     main()
