@@ -1260,75 +1260,78 @@ def generate_ordenes_excel(ordenes_df):
         ordenes_df.to_excel(writer, sheet_name='Órdenes Creadas', index=False)
     return output.getvalue()
 
-def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, ordenes_df=None):
+def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, ordenes_df=None, personal_data=None):
     """
     Genera un archivo Excel con:
     - Hoja "HE Semanal por Técnico": tabla semanal por cada técnico con columnas
       SEMANA, DÍA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD
     - Hoja "Resumen por Técnico": totales acumulados por técnico
     - Hoja "Detalle Registros": datos crudos completos
+    - Una hoja por semana "SEM nn dd-mm al dd-mm" con el formato
+      REPORTE DE JUSTIFICACIÓN DE SOBRETIEMPO (Planta Taura, Taller Mant. Mecánico):
+      un bloque por empleado con DÍA, FECHA, H. ENTRADA, H. SALIDA, 50%, 100%,
+      ACTIVIDAD/JUSTIFICACIÓN y fila SUMAN (horas en formato hh:mm).
     """
     if overtime_data.empty:
         return None
 
+    def fmt_ot(v):
+        if pd.isna(v) or str(v).strip() in ('', 'nan', 'None'):
+            return ''
+        s = str(v).strip()
+        if s.endswith('.0'):
+            s = s[:-2]
+        try:
+            num = float(s)
+            if num.is_integer():
+                return str(int(num))
+            else:
+                return s
+        except:
+            return s
+
     # Enriquecer con datos de órdenes (equipo, actividad) si se proporciona ordenes_df
     df_enriched = overtime_data.copy()
+    for _c in ('EQUIPO_ASIGNADO', 'ACTIVIDAD'):
+        if _c not in df_enriched.columns:
+            df_enriched[_c] = ''
+
     if ordenes_df is not None and not ordenes_df.empty and 'OT' in df_enriched.columns:
-        # Buscar columna de OT en ordenes_df
+        ord_df = ordenes_df.copy()  # no se modifica el DataFrame original de la sesión
         col_ot_ordenes = None
-        for col in ['OT', 'N° DE OT', 'N° OT', 'ORDEN', 'NUMERO DE ORDEN']:
-            if col in ordenes_df.columns:
+        for col in ['OT', 'N° DE OT', 'N° OT', 'ORDEN', 'NUMERO DE ORDEN', 'N° DE ORDEN']:
+            if col in ord_df.columns:
                 col_ot_ordenes = col
                 break
         if col_ot_ordenes:
-            ordenes_df[str(col_ot_ordenes)] = ordenes_df[col_ot_ordenes].astype(str).str.strip()
-            df_enriched['OT_KEY'] = df_enriched['OT'].astype(str).str.strip()
-            
-            # Seleccionar columnas de equipo y actividad
-            equipo_col = None
-            for col in ordenes_df.columns:
-                if 'EQUIPO' in col.upper():
-                    equipo_col = col
-                    break
-            actividad_col = None
-            for col in ordenes_df.columns:
-                if 'DESCRIPCIÓN' in col.upper() or 'ACTIVIDAD' in col.upper() or 'JUSTIFICACIÓN' in col.upper():
-                    actividad_col = col
-                    break
-            
-            merge_cols = [col_ot_ordenes]
-            if equipo_col:
-                merge_cols.append(equipo_col)
-                ordenes_df = ordenes_df.rename(columns={equipo_col: 'EQUIPO_ASIGNADO'})
-            if actividad_col:
-                merge_cols.append(actividad_col)
-                ordenes_df = ordenes_df.rename(columns={actividad_col: 'ACTIVIDAD'})
-            
-            # Hacer merge evitando conflicto con la columna 'OT' original
-            df_enriched = df_enriched.merge(
-                ordenes_df[[col_ot_ordenes, 'EQUIPO_ASIGNADO', 'ACTIVIDAD']],
-                left_on='OT_KEY', right_on=col_ot_ordenes,
-                how='left', suffixes=('', '_orden')
-            )
-            # Eliminar posibles columnas sobrantes
-            if 'OT_orden' in df_enriched.columns:
-                df_enriched = df_enriched.drop(columns=['OT_orden'])
-            if 'EQUIPO_ASIGNADO' not in df_enriched.columns:
-                df_enriched['EQUIPO_ASIGNADO'] = ''
-            if 'ACTIVIDAD' not in df_enriched.columns:
-                df_enriched['ACTIVIDAD'] = ''
-            df_enriched = df_enriched.drop(columns=['OT_KEY'])
-        else:
-            df_enriched['EQUIPO_ASIGNADO'] = ''
-            df_enriched['ACTIVIDAD'] = ''
-    else:
-        df_enriched['EQUIPO_ASIGNADO'] = ''
-        df_enriched['ACTIVIDAD'] = ''
+            ord_df['_OT_KEY'] = ord_df[col_ot_ordenes].apply(fmt_ot)
+            ord_df = ord_df[ord_df['_OT_KEY'] != ''].drop_duplicates('_OT_KEY').set_index('_OT_KEY')
+
+            equipo_col = 'EQUIPO' if 'EQUIPO' in ord_df.columns else next(
+                (c for c in ord_df.columns if 'EQUIPO' in str(c).upper()), None)
+            actividad_col = next(
+                (c for c in ord_df.columns
+                 if any(k in str(c).upper() for k in ('DESCRIPCIÓN', 'DESCRIPCION', 'ACTIVIDAD', 'JUSTIFICACIÓN', 'JUSTIFICACION'))),
+                None)
+
+            df_enriched['_OT_KEY'] = df_enriched['OT'].apply(fmt_ot)
+
+            def _fill(target, source_col):
+                if source_col is None:
+                    return
+                mapped = df_enriched['_OT_KEY'].map(ord_df[source_col]).fillna('').astype(str)
+                cur = df_enriched[target].fillna('').astype(str)
+                df_enriched[target] = cur.where(cur.str.strip() != '', mapped)
+
+            _fill('EQUIPO_ASIGNADO', equipo_col)
+            _fill('ACTIVIDAD', actividad_col)
+            df_enriched = df_enriched.drop(columns=['_OT_KEY'])
 
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
+        from openpyxl.worksheet.properties import PageSetupProperties
 
         wb = Workbook()
         wb.remove(wb.active)
@@ -1364,7 +1367,19 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
 
         def ms(ws, r1, c1, r2, c2, **kwargs):
             ws.merge_cells(start_row=r1, start_column=c1, end_row=r2, end_column=c2)
-            return cs(ws, r1, c1, **kwargs)
+            c = cs(ws, r1, c1, **kwargs)
+            # aplicar borde/relleno a todas las celdas del rango combinado
+            border = kwargs.get('border')
+            bg = kwargs.get('bg')
+            if border or bg:
+                for rr in range(r1, r2 + 1):
+                    for cc in range(c1, c2 + 1):
+                        cell = ws.cell(row=rr, column=cc)
+                        if border:
+                            cell.border = border
+                        if bg:
+                            cell.fill = PatternFill("solid", fgColor=bg)
+            return c
 
         # Preprocesar datos
         df = df_enriched.copy()
@@ -1387,21 +1402,6 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
 
         df['RESPONSABLE'] = df['RESPONSABLE'].astype(str).str.strip()
         df = df[(df['RESPONSABLE'].str.len() > 0) & (df['RESPONSABLE'] != 'nan')]
-
-        def fmt_ot(v):
-            if pd.isna(v) or str(v).strip() in ('', 'nan', 'None'):
-                return ''
-            s = str(v).strip()
-            if s.endswith('.0'):
-                s = s[:-2]
-            try:
-                num = float(s)
-                if num.is_integer():
-                    return str(int(num))
-                else:
-                    return s
-            except:
-                return s
 
         # Asegurar columna OT_FMT
         df['OT_FMT'] = df['OT'].apply(fmt_ot) if 'OT' in df.columns else ''
@@ -1648,6 +1648,167 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                     val = round(float(val), 2) if pd.notna(val) else 0
                 cs(ws3, ri, ci, val, size=9, bg=bgr, border=thin_border,
                    h_align="left" if ci in [1,2,5,8,9] else "center")
+
+        # ====================================================
+        # HOJAS: REPORTE DE JUSTIFICACIÓN DE SOBRETIEMPO
+        # (una hoja por semana, un bloque por empleado)
+        # ====================================================
+        # Cargo de cada empleado (si la hoja PERSONAL lo trae)
+        cargos = {}
+        if personal_data is not None and not personal_data.empty:
+            name_col = next((c for c in ['NOMBRE COMPLETO', 'NOMBRE', 'NOMBRES', 'EMPLEADO',
+                                         'TECNICO', 'TÉCNICO', 'RESPONSABLE']
+                             if c in personal_data.columns), None)
+            cargo_col = next((c for c in ['CARGO', 'PUESTO', 'FUNCION', 'FUNCIÓN']
+                              if c in personal_data.columns), None)
+            if name_col and cargo_col:
+                for n, cg in zip(personal_data[name_col].astype(str), personal_data[cargo_col].astype(str)):
+                    n = n.strip().upper()
+                    cg = cg.strip()
+                    if n and n != 'NAN' and cg.lower() not in ('', 'nan', 'none'):
+                        cargos[n] = cg
+
+        def horas_a_excel(h):
+            """Horas decimales -> fracción de día (formato [h]:mm)."""
+            try:
+                return round(float(h) * 60) / 1440.0
+            except Exception:
+                return 0.0
+
+        def actividad_texto(df_dia):
+            partes = []
+            for _, r in df_dia.iterrows():
+                ot = fmt_ot(r.get('OT', ''))
+                eq = str(r.get('EQUIPO_ASIGNADO', '') or '').strip()
+                ac = str(r.get('ACTIVIDAD', '') or '').strip()
+                eq = '' if eq.lower() in ('nan', 'none') else eq
+                ac = '' if ac.lower() in ('nan', 'none') else ac
+                txt = " - ".join([p for p in [(f"OT {ot}" if ot else ""), eq, ac] if p])
+                if txt and txt not in partes:
+                    partes.append(txt)
+            return "; ".join(partes)
+
+        semanas_keys = (df_valid[['AÑO_ISO', 'SEMANA_ISO']]
+                        .drop_duplicates()
+                        .sort_values(['AÑO_ISO', 'SEMANA_ISO']))
+        nombres_hojas = set(wb.sheetnames)
+
+        for _, wk in semanas_keys.iterrows():
+            año_iso = int(wk['AÑO_ISO'])
+            semana_iso = int(wk['SEMANA_ISO'])
+            try:
+                lunes_d = datetime.fromisocalendar(año_iso, semana_iso, 1).date()
+            except Exception:
+                continue
+            domingo_d = lunes_d + timedelta(days=6)
+
+            nombre_hoja = f"SEM {semana_iso:02d} {lunes_d.strftime('%d-%m')} al {domingo_d.strftime('%d-%m')}"
+            if nombre_hoja in nombres_hojas:
+                nombre_hoja = f"SEM {semana_iso:02d} {año_iso} {lunes_d.strftime('%d-%m')}"
+            nombre_hoja = nombre_hoja[:31]
+            nombres_hojas.add(nombre_hoja)
+
+            wsj = wb.create_sheet(nombre_hoja)
+            for ci, w in {1: 14, 2: 13, 3: 12, 4: 12, 5: 10, 6: 10, 7: 75}.items():
+                wsj.column_dimensions[get_column_letter(ci)].width = w
+
+            # Encabezado (el logo se reemplaza por el nombre de la empresa)
+            for rr in range(1, 5):
+                wsj.row_dimensions[rr].height = 16
+            ms(wsj, 1, 1, 4, 2, value="FORTIDEX S.A.", bold=True, size=14,
+               color=FORTIDEX_BLUE, border=thin_border)
+            ms(wsj, 1, 3, 4, 6, value="REPORTE DE JUSTIFICACION DE SOBRETIEMPO",
+               bold=True, size=14, border=thin_border)
+            ms(wsj, 1, 7, 4, 7, value="Planta Taura", bold=True, size=14, border=thin_border)
+
+            ms(wsj, 5, 1, 5, 1, value="ÁREA:", bold=True, size=10, h_align="left", border=thin_border)
+            ms(wsj, 5, 2, 5, 7, value="TALLER MANT. MECÁNICO", bold=True, size=10,
+               h_align="center", border=thin_border)
+
+            cs(wsj, 6, 1, "SEMANA DESDE:", bold=True, size=10, h_align="left", border=thin_border)
+            ms(wsj, 6, 2, 6, 3, value=lunes_d, bold=True, size=10, border=thin_border,
+               number_format='d/m/yyyy')
+            cs(wsj, 6, 4, "HASTA:", bold=True, size=10, border=thin_border)
+            ms(wsj, 6, 5, 6, 6, value=domingo_d, bold=True, size=10, border=thin_border,
+               number_format='d/m/yyyy')
+            cs(wsj, 6, 7, f"Semana ISO {semana_iso} / {año_iso}", size=9, border=thin_border)
+
+            df_wk = df_valid[(df_valid['AÑO_ISO'] == año_iso) & (df_valid['SEMANA_ISO'] == semana_iso)]
+            empleados = sorted(df_wk['RESPONSABLE'].unique())
+
+            fila = 8
+            for emp in empleados:
+                df_emp = df_wk[df_wk['RESPONSABLE'] == emp]
+
+                # Empleado / cargo
+                wsj.row_dimensions[fila].height = 18
+                cs(wsj, fila, 1, "EMPLEADO:", bold=True, size=10, color=FORTIDEX_BLUE,
+                   bg=TECNICO_HEADER, h_align="left", border=thick_border)
+                ms(wsj, fila, 2, fila, 5, value=emp.upper(), bold=True, size=10,
+                   color=FORTIDEX_BLUE, bg=TECNICO_HEADER, h_align="left", border=thick_border)
+                cs(wsj, fila, 6, "CARGO:", bold=True, size=10, color=FORTIDEX_BLUE,
+                   bg=TECNICO_HEADER, border=thick_border)
+                cs(wsj, fila, 7, cargos.get(emp.strip().upper(), ""), bold=True, size=10,
+                   color=FORTIDEX_BLUE, bg=TECNICO_HEADER, h_align="left", border=thick_border)
+                fila += 1
+
+                # Cabecera de columnas
+                wsj.row_dimensions[fila].height = 18
+                for ci, hdr in enumerate(["DÍA", "FECHA", "H. ENTRADA", "H. SALIDA", "50%", "100%",
+                                          "ACTIVIDAD/JUSTIFICACIÓN"], start=1):
+                    cs(wsj, fila, ci, hdr, bold=True, size=10, color=WHITE,
+                       bg=FORTIDEX_ORANGE, border=thin_border)
+                fila += 1
+
+                fila_ini = fila
+                for i_dia, dow in enumerate(DIAS_ORDEN):
+                    fecha_dia = lunes_d + timedelta(days=dow)
+                    df_dia = df_emp[df_emp['DOW'] == dow]
+                    bg_row = WHITE if i_dia % 2 == 0 else ROW_GRAY
+                    h_horas = float(df_dia['HORAS_EXTRAS'].sum()) if not df_dia.empty else 0.0
+
+                    # H. ENTRADA / H. SALIDA = primer inicio y último fin de las horas extras del día
+                    h_ent = h_sal = ""
+                    if not df_dia.empty:
+                        ini = df_dia['INICIO_HORAS_EXTRAS'].dropna()
+                        fin = df_dia['FIN_HORAS_EXTRAS'].dropna()
+                        if not ini.empty:
+                            h_ent = ini.min().to_pydatetime().replace(second=0, microsecond=0).time()
+                        if not fin.empty:
+                            h_sal = fin.max().to_pydatetime().replace(second=0, microsecond=0).time()
+
+                    es_100 = dow in DIAS_100
+                    wsj.row_dimensions[fila].height = 30 if not df_dia.empty else 18
+
+                    cs(wsj, fila, 1, DIAS_NOMBRES[dow], size=9, bg=bg_row, border=thin_border, bold=es_100)
+                    cs(wsj, fila, 2, fecha_dia, size=9, bg=bg_row, border=thin_border, number_format='d/m/yyyy')
+                    cs(wsj, fila, 3, h_ent, size=9, bg=bg_row, border=thin_border, number_format='h:mm')
+                    cs(wsj, fila, 4, h_sal, size=9, bg=bg_row, border=thin_border, number_format='h:mm')
+                    cs(wsj, fila, 5, horas_a_excel(h_horas) if not es_100 else None,
+                       size=9, bg=bg_row, border=thin_border, number_format='[h]:mm')
+                    cs(wsj, fila, 6, horas_a_excel(h_horas) if es_100 else None,
+                       size=9, bg=bg_row, border=thin_border, number_format='[h]:mm')
+                    cs(wsj, fila, 7, actividad_texto(df_dia) if not df_dia.empty else "",
+                       size=8, bg=bg_row, border=thin_border, h_align="left", wrap=True)
+                    fila += 1
+                fila_fin = fila - 1
+
+                # SUMAN
+                wsj.row_dimensions[fila].height = 16
+                ms(wsj, fila, 1, fila, 4, value="SUMAN", bold=True, size=10,
+                   bg=TOTAL_GREEN, h_align="right", border=thick_border)
+                cs(wsj, fila, 5, f"=SUM(E{fila_ini}:E{fila_fin})", bold=True, size=10,
+                   bg=TOTAL_GREEN, border=thick_border, number_format='[h]:mm')
+                cs(wsj, fila, 6, f"=SUM(F{fila_ini}:F{fila_fin})", bold=True, size=10,
+                   bg=TOTAL_GREEN, border=thick_border, number_format='[h]:mm')
+                cs(wsj, fila, 7, "", bg=TOTAL_GREEN, border=thick_border)
+                fila += 2  # fila en blanco entre empleados
+
+            # Configuración de impresión
+            wsj.page_setup.orientation = 'landscape'
+            wsj.page_setup.fitToWidth = 1
+            wsj.page_setup.fitToHeight = 0
+            wsj.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
 
         output = io.BytesIO()
         wb.save(output)
@@ -2839,8 +3000,9 @@ def main():
         with tab10:
             st.header("📊 Reporte de Horas Extras")
             st.markdown("""
-            > El reporte se genera en formato **Reporte de Justificación de Sobretiempo** de Fortidex,
-            > organizado por semana y empleado, con columnas de **SEMANA**, **DÍA**, **CANT. HORAS 50%**, **CANT. HORAS 100%**, **N° OT**, **EQUIPO ASIGNADO** y **ACTIVIDAD**.
+            > El reporte se genera en formato **Reporte de Justificación de Sobretiempo** de Fortidex (Planta Taura, Taller Mant. Mecánico):
+            > **una hoja por semana**, un bloque por empleado, con **DÍA**, **FECHA**, **H. ENTRADA**, **H. SALIDA**, **50%**, **100%** y **ACTIVIDAD/JUSTIFICACIÓN**,
+            > más el **Reporte de Horas Extras Semanal por Técnico** (SEMANA, DÍA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO y ACTIVIDAD).
             """)
             
             st.subheader("🔍 Filtros para el Reporte")
@@ -2939,13 +3101,15 @@ def main():
                 | **HE Semanal por Técnico** | Tabla por técnico con SEMANA, DÍA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD |
                 | **Resumen por Técnico** | Totales de horas y valor en dólares por técnico |
                 | **Detalle Registros** | Datos crudos completos de la hoja DETALLE_HE |
+                | **SEM nn dd-mm al dd-mm** (una por semana) | Reporte de Justificación de Sobretiempo: por empleado, DÍA, FECHA, H. ENTRADA, H. SALIDA, 50%, 100%, ACTIVIDAD/JUSTIFICACIÓN y fila SUMAN (hh:mm) |
                 """)
                 
                 if st.button("⬇️ Generar y Descargar Reporte Excel", type="primary"):
                     with st.spinner("Generando reporte en formato Fortidex..."):
                         excel_data = generate_overtime_report_excel(
                             filtered_overtime_report, report_fecha_inicio, report_fecha_fin,
-                            ordenes_df=st.session_state.data
+                            ordenes_df=st.session_state.data,
+                            personal_data=st.session_state.personal_data
                         )
                         
                         if excel_data:
