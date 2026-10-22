@@ -1264,7 +1264,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
     """
     Genera un archivo Excel con:
     - Hoja "HE Semanal por Técnico": tabla semanal por cada técnico con columnas
-      SEMANA, DÍA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD
+      SEMANA, DÍA, FECHA Y HORA DE ENTRADA, FECHA Y HORA DE SALIDA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD
     - Hoja "Resumen por Técnico": totales acumulados por técnico
     - Hoja "Detalle Registros": datos crudos completos
     - Una hoja por semana "SEM nn dd-mm al dd-mm" con el formato
@@ -1423,19 +1423,21 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
         df_valid = df_valid.sort_values(['RESPONSABLE', 'AÑO_ISO', 'SEMANA_ISO', 'DOW'])
 
         # Hoja 1: HE Semanal por Técnico
+        # (muestra TODAS las semanas y días del rango solicitado, tengan o no órdenes)
         ws1 = wb.create_sheet("HE Semanal por Técnico")
-        col_w = {1: 20, 2: 14, 3: 22, 4: 22, 5: 28, 6: 35, 7: 45}
+        col_w = {1: 20, 2: 14, 3: 22, 4: 22, 5: 16, 6: 16, 7: 22, 8: 35, 9: 45}
         for ci, w in col_w.items():
             ws1.column_dimensions[get_column_letter(ci)].width = w
+        N_COLS1 = 9
 
         ws1.row_dimensions[1].height = 24
-        ms(ws1, 1, 1, 1, 7,
+        ms(ws1, 1, 1, 1, N_COLS1,
            value="REPORTE DE HORAS EXTRAS SEMANAL POR TÉCNICO",
            bold=True, size=13, color=WHITE, bg=FORTIDEX_BLUE,
            h_align="center", border=thick_border)
 
         ws1.row_dimensions[2].height = 15
-        ms(ws1, 2, 1, 2, 7,
+        ms(ws1, 2, 1, 2, N_COLS1,
            value=f"Período: {fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}",
            bold=False, size=10, color=FORTIDEX_BLUE, bg=HEADER_BLUE,
            h_align="center", border=thin_border)
@@ -1446,38 +1448,42 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
 
         tecnicos_lista = sorted(df_valid['RESPONSABLE'].unique())
 
+        # Todas las semanas (lunes) que tocan el rango solicitado
+        semanas_rango = []
+        lunes_iter = fi_date - timedelta(days=fi_date.weekday())
+        while lunes_iter <= ff_date:
+            semanas_rango.append(lunes_iter)
+            lunes_iter += timedelta(days=7)
+
         for tecnico in tecnicos_lista:
             df_tec = df_valid[df_valid['RESPONSABLE'] == tecnico].copy()
             ws1.row_dimensions[current_row].height = 18
-            ms(ws1, current_row, 1, current_row, 7,
+            ms(ws1, current_row, 1, current_row, N_COLS1,
                value=f"TÉCNICO:  {tecnico.upper()}",
                bold=True, size=11, color=FORTIDEX_BLUE, bg=TECNICO_HEADER,
                h_align="left", border=thick_border)
             current_row += 1
 
-            headers = ["SEMANA", "DÍA", "CANT. HORAS 50%", "CANT. HORAS 100%", "N° OT", "EQUIPO ASIGNADO", "ACTIVIDAD"]
-            ws1.row_dimensions[current_row].height = 20
+            headers = ["SEMANA", "DÍA", "FECHA Y HORA DE ENTRADA", "FECHA Y HORA DE SALIDA",
+                       "CANT. HORAS 50%", "CANT. HORAS 100%", "N° OT", "EQUIPO ASIGNADO", "ACTIVIDAD"]
+            ws1.row_dimensions[current_row].height = 30
             for ci, hdr in enumerate(headers, start=1):
                 cs(ws1, current_row, ci, hdr,
                    bold=True, size=10, color=WHITE, bg=FORTIDEX_ORANGE,
-                   border=thin_border)
+                   border=thin_border, wrap=True)
             current_row += 1
 
-            semanas_tec = sorted(df_tec['SEMANA_STR'].unique())
             total_h50_tec = total_h100_tec = 0.0
 
-            for semana_str in semanas_tec:
+            for lunes_d in semanas_rango:
+                domingo_d = lunes_d + timedelta(days=6)
+                iso_cal = lunes_d.isocalendar()
+                año_iso = int(iso_cal[0])
+                semana_iso = int(iso_cal[1])
+                semana_str = f"{año_iso}-S{semana_iso:02d}"
+
                 df_sem = df_tec[df_tec['SEMANA_STR'] == semana_str].copy()
                 total_h50_sem = total_h100_sem = 0.0
-
-                año_iso    = int(df_sem['AÑO_ISO'].iloc[0])
-                semana_iso = int(df_sem['SEMANA_ISO'].iloc[0])
-                try:
-                    lunes_d   = datetime.fromisocalendar(año_iso, semana_iso, 1).date()
-                    domingo_d = lunes_d + timedelta(days=6)
-                except Exception:
-                    lunes_d   = df_sem['INICIO_HORAS_EXTRAS'].min().date()
-                    domingo_d = df_sem['INICIO_HORAS_EXTRAS'].max().date()
 
                 dia_inicio_semana = max(lunes_d, fi_date)
                 dia_fin_semana    = min(domingo_d, ff_date)
@@ -1496,10 +1502,11 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                 primera_fila_semana = True
                 for i_dia, (dow, fecha_dia) in enumerate(dias_en_rango):
                     dia_nombre = DIAS_NOMBRES[dow]
-                    df_dia = df_sem[df_sem['DOW'] == dow]
+                    df_dia = df_sem[df_sem['DOW'] == dow] if not df_sem.empty else df_sem
                     h_horas = float(df_dia['HORAS_EXTRAS'].sum()) if not df_dia.empty else 0.0
                     bg_row = WHITE if i_dia % 2 == 0 else ROW_GRAY
 
+                    ent_dt = sal_dt = ""
                     if not df_dia.empty:
                         ots = [fmt_ot(v) for v in df_dia['OT'].dropna() if str(v).strip() not in ('', 'nan', 'None')]
                         ot_str = " / ".join(ots) if ots else ""
@@ -1507,6 +1514,13 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                         equipo_str = " / ".join(equipos) if equipos else ""
                         actividades = [str(v) for v in df_dia['ACTIVIDAD'].dropna() if str(v).strip() not in ('', 'nan', 'None')]
                         actividad_str = " / ".join(actividades) if actividades else ""
+
+                        ini_s = df_dia['INICIO_HORAS_EXTRAS'].dropna()
+                        fin_s = df_dia['FIN_HORAS_EXTRAS'].dropna()
+                        if not ini_s.empty:
+                            ent_dt = ini_s.min().to_pydatetime().replace(second=0, microsecond=0)
+                        if not fin_s.empty:
+                            sal_dt = fin_s.max().to_pydatetime().replace(second=0, microsecond=0)
                     else:
                         ot_str = equipo_str = actividad_str = ""
 
@@ -1519,18 +1533,23 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
 
                     cs(ws1, current_row, 2, dia_nombre, size=9, bg=bg_row, border=thin_border, bold=(dow in DIAS_100))
 
+                    cs(ws1, current_row, 3, ent_dt, size=9, bg=bg_row, border=thin_border,
+                       number_format='dd/mm/yyyy hh:mm' if ent_dt != "" else None)
+                    cs(ws1, current_row, 4, sal_dt, size=9, bg=bg_row, border=thin_border,
+                       number_format='dd/mm/yyyy hh:mm' if sal_dt != "" else None)
+
                     if dow in DIAS_100:
                         h50_val, h100_val = 0.0, h_horas
                     else:
                         h50_val, h100_val = h_horas, 0.0
 
-                    cs(ws1, current_row, 3, round(h50_val, 2) if h50_val > 0 else "",
+                    cs(ws1, current_row, 5, round(h50_val, 2) if h50_val > 0 else "",
                        size=9, bg=bg_row, border=thin_border, number_format='0.00' if h50_val > 0 else None)
-                    cs(ws1, current_row, 4, round(h100_val, 2) if h100_val > 0 else "",
+                    cs(ws1, current_row, 6, round(h100_val, 2) if h100_val > 0 else "",
                        size=9, bg=bg_row, border=thin_border, number_format='0.00' if h100_val > 0 else None)
-                    cs(ws1, current_row, 5, ot_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
-                    cs(ws1, current_row, 6, equipo_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
-                    cs(ws1, current_row, 7, actividad_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
+                    cs(ws1, current_row, 7, ot_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
+                    cs(ws1, current_row, 8, equipo_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
+                    cs(ws1, current_row, 9, actividad_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
 
                     total_h50_sem += h50_val
                     total_h100_sem += h100_val
@@ -1540,10 +1559,11 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                 ws1.row_dimensions[current_row].height = 14
                 cs(ws1, current_row, 1, "SUBTOTAL SEMANA", bold=True, size=9,
                    bg=SUM_BLUE, border=thin_border, h_align="right")
-                cs(ws1, current_row, 2, "", size=9, bg=SUM_BLUE, border=thin_border)
-                cs(ws1, current_row, 3, round(total_h50_sem, 2), bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
-                cs(ws1, current_row, 4, round(total_h100_sem, 2), bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
-                for ci in [5,6,7]:
+                for ci in [2, 3, 4]:
+                    cs(ws1, current_row, ci, "", size=9, bg=SUM_BLUE, border=thin_border)
+                cs(ws1, current_row, 5, round(total_h50_sem, 2), bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
+                cs(ws1, current_row, 6, round(total_h100_sem, 2), bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
+                for ci in [7, 8, 9]:
                     cs(ws1, current_row, ci, "", size=9, bg=SUM_BLUE, border=thin_border)
                 current_row += 1
 
@@ -1554,10 +1574,11 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
             ws1.row_dimensions[current_row].height = 16
             cs(ws1, current_row, 1, f"TOTAL  {tecnico.upper()}", bold=True, size=10,
                bg=TOTAL_GREEN, border=thick_border, h_align="left")
-            cs(ws1, current_row, 2, "", bold=True, size=10, bg=TOTAL_GREEN, border=thick_border)
-            cs(ws1, current_row, 3, round(total_h50_tec, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
-            cs(ws1, current_row, 4, round(total_h100_tec, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
-            for ci in [5,6,7]:
+            for ci in [2, 3, 4]:
+                cs(ws1, current_row, ci, "", bold=True, size=10, bg=TOTAL_GREEN, border=thick_border)
+            cs(ws1, current_row, 5, round(total_h50_tec, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+            cs(ws1, current_row, 6, round(total_h100_tec, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+            for ci in [7, 8, 9]:
                 cs(ws1, current_row, ci, "", bold=True, size=10, bg=TOTAL_GREEN, border=thick_border)
             current_row += 2
 
@@ -3002,7 +3023,7 @@ def main():
             st.markdown("""
             > El reporte se genera en formato **Reporte de Justificación de Sobretiempo** de Fortidex (Planta Taura, Taller Mant. Mecánico):
             > **una hoja por semana**, un bloque por empleado, con **DÍA**, **FECHA**, **H. ENTRADA**, **H. SALIDA**, **50%**, **100%** y **ACTIVIDAD/JUSTIFICACIÓN**,
-            > más el **Reporte de Horas Extras Semanal por Técnico** (SEMANA, DÍA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO y ACTIVIDAD).
+            > más el **Reporte de Horas Extras Semanal por Técnico** (SEMANA, DÍA, FECHA Y HORA DE ENTRADA, FECHA Y HORA DE SALIDA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO y ACTIVIDAD).
             """)
             
             st.subheader("🔍 Filtros para el Reporte")
@@ -3098,7 +3119,7 @@ def main():
                 ### **El archivo Excel generado incluye:**
                 | Hoja | Contenido |
                 |------|-----------|
-                | **HE Semanal por Técnico** | Tabla por técnico con SEMANA, DÍA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD |
+                | **HE Semanal por Técnico** | Tabla por técnico con SEMANA, DÍA, FECHA Y HORA DE ENTRADA, FECHA Y HORA DE SALIDA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD |
                 | **Resumen por Técnico** | Totales de horas y valor en dólares por técnico |
                 | **Detalle Registros** | Datos crudos completos de la hoja DETALLE_HE |
                 | **SEM nn dd-mm al dd-mm** (una por semana) | Reporte de Justificación de Sobretiempo: por empleado, DÍA, FECHA, H. ENTRADA, H. SALIDA, 50%, 100%, ACTIVIDAD/JUSTIFICACIÓN y fila SUMAN (hh:mm) |
