@@ -1264,7 +1264,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
     """
     Genera un archivo Excel con:
     - Hoja "HE Semanal por Técnico": tabla semanal por cada técnico con columnas
-      SEMANA, DÍA, FECHA Y HORA DE ENTRADA, FECHA Y HORA DE SALIDA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD
+      SEMANA, DÍA, HORA DE ENTRADA, HORA DE SALIDA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD
     - Hoja "Resumen por Técnico": totales acumulados por técnico
     - Hoja "Detalle Registros": datos crudos completos
     - Una hoja por semana "SEM nn dd-mm al dd-mm" con el formato
@@ -1464,7 +1464,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                h_align="left", border=thick_border)
             current_row += 1
 
-            headers = ["SEMANA", "DÍA", "FECHA Y HORA DE ENTRADA", "FECHA Y HORA DE SALIDA",
+            headers = ["SEMANA", "DÍA", "HORA DE ENTRADA", "HORA DE SALIDA",
                        "CANT. HORAS 50%", "CANT. HORAS 100%", "N° OT", "EQUIPO ASIGNADO", "ACTIVIDAD"]
             ws1.row_dimensions[current_row].height = 30
             for ci, hdr in enumerate(headers, start=1):
@@ -1485,23 +1485,15 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                 df_sem = df_tec[df_tec['SEMANA_STR'] == semana_str].copy()
                 total_h50_sem = total_h100_sem = 0.0
 
-                dia_inicio_semana = max(lunes_d, fi_date)
-                dia_fin_semana    = min(domingo_d, ff_date)
-                semana_label = (
-                    f"S{semana_iso:02d}  "
-                    f"{dia_inicio_semana.strftime('%d/%m')} - "
-                    f"{dia_fin_semana.strftime('%d/%m/%Y')}"
-                )
-
                 dias_en_rango = []
                 for dow in DIAS_ORDEN:
                     fecha_dia = lunes_d + timedelta(days=dow)
                     if fi_date <= fecha_dia <= ff_date:
                         dias_en_rango.append((dow, fecha_dia))
 
-                primera_fila_semana = True
                 for i_dia, (dow, fecha_dia) in enumerate(dias_en_rango):
                     dia_nombre = DIAS_NOMBRES[dow]
+                    semana_label = f"S{semana_iso:02d} {fecha_dia.strftime('%d/%m/%Y')}"
                     df_dia = df_sem[df_sem['DOW'] == dow] if not df_sem.empty else df_sem
                     h_horas = float(df_dia['HORAS_EXTRAS'].sum()) if not df_dia.empty else 0.0
                     bg_row = WHITE if i_dia % 2 == 0 else ROW_GRAY
@@ -1518,25 +1510,21 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                         ini_s = df_dia['INICIO_HORAS_EXTRAS'].dropna()
                         fin_s = df_dia['FIN_HORAS_EXTRAS'].dropna()
                         if not ini_s.empty:
-                            ent_dt = ini_s.min().to_pydatetime().replace(second=0, microsecond=0)
+                            ent_dt = ini_s.min().to_pydatetime().replace(second=0, microsecond=0).time()
                         if not fin_s.empty:
-                            sal_dt = fin_s.max().to_pydatetime().replace(second=0, microsecond=0)
+                            sal_dt = fin_s.max().to_pydatetime().replace(second=0, microsecond=0).time()
                     else:
                         ot_str = equipo_str = actividad_str = ""
 
                     ws1.row_dimensions[current_row].height = 14
-                    if primera_fila_semana:
-                        cs(ws1, current_row, 1, semana_label, size=9, bg=bg_row, border=thin_border, h_align="center", wrap=True)
-                        primera_fila_semana = False
-                    else:
-                        cs(ws1, current_row, 1, "", size=9, bg=bg_row, border=thin_border)
+                    cs(ws1, current_row, 1, semana_label, size=9, bg=bg_row, border=thin_border, h_align="center", wrap=True)
 
                     cs(ws1, current_row, 2, dia_nombre, size=9, bg=bg_row, border=thin_border, bold=(dow in DIAS_100))
 
                     cs(ws1, current_row, 3, ent_dt, size=9, bg=bg_row, border=thin_border,
-                       number_format='dd/mm/yyyy hh:mm' if ent_dt != "" else None)
+                       number_format='hh:mm' if ent_dt != "" else None)
                     cs(ws1, current_row, 4, sal_dt, size=9, bg=bg_row, border=thin_border,
-                       number_format='dd/mm/yyyy hh:mm' if sal_dt != "" else None)
+                       number_format='hh:mm' if sal_dt != "" else None)
 
                     if dow in DIAS_100:
                         h50_val, h100_val = 0.0, h_horas
@@ -3023,7 +3011,7 @@ def main():
             st.markdown("""
             > El reporte se genera en formato **Reporte de Justificación de Sobretiempo** de Fortidex (Planta Taura, Taller Mant. Mecánico):
             > **una hoja por semana**, un bloque por empleado, con **DÍA**, **FECHA**, **H. ENTRADA**, **H. SALIDA**, **50%**, **100%** y **ACTIVIDAD/JUSTIFICACIÓN**,
-            > más el **Reporte de Horas Extras Semanal por Técnico** (SEMANA, DÍA, FECHA Y HORA DE ENTRADA, FECHA Y HORA DE SALIDA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO y ACTIVIDAD).
+            > más el **Reporte de Horas Extras Semanal por Técnico** (SEMANA, DÍA, HORA DE ENTRADA, HORA DE SALIDA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO y ACTIVIDAD).
             """)
             
             st.subheader("🔍 Filtros para el Reporte")
@@ -3119,7 +3107,7 @@ def main():
                 ### **El archivo Excel generado incluye:**
                 | Hoja | Contenido |
                 |------|-----------|
-                | **HE Semanal por Técnico** | Tabla por técnico con SEMANA, DÍA, FECHA Y HORA DE ENTRADA, FECHA Y HORA DE SALIDA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD |
+                | **HE Semanal por Técnico** | Tabla por técnico con SEMANA, DÍA, HORA DE ENTRADA, HORA DE SALIDA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD |
                 | **Resumen por Técnico** | Totales de horas y valor en dólares por técnico |
                 | **Detalle Registros** | Datos crudos completos de la hoja DETALLE_HE |
                 | **SEM nn dd-mm al dd-mm** (una por semana) | Reporte de Justificación de Sobretiempo: por empleado, DÍA, FECHA, H. ENTRADA, H. SALIDA, 50%, 100%, ACTIVIDAD/JUSTIFICACIÓN y fila SUMAN (hh:mm) |
