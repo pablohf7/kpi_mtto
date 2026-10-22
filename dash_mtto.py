@@ -1267,6 +1267,8 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
       SEMANA, DÍA, HORA DE ENTRADA, HORA DE SALIDA, CANT. HORAS 50%, CANT. HORAS 100%, N° OT, EQUIPO ASIGNADO, ACTIVIDAD
     - Hoja "Resumen por Técnico": totales acumulados por técnico
     - Hoja "Detalle Registros": datos crudos completos
+    Todas las hojas incluyen a TODO el personal (hoja PERSONAL), tenga o no horas extras;
+    los cuadros semanales quedan listos para ingresar datos manualmente (subtotales con fórmula).
     - Una hoja por semana "SEM nn dd-mm al dd-mm" con el formato
       REPORTE DE JUSTIFICACIÓN DE SOBRETIEMPO (Planta Taura, Taller Mant. Mecánico):
       un bloque por empleado con DÍA, FECHA, H. ENTRADA, H. SALIDA, 50%, 100%,
@@ -1422,6 +1424,49 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
         DIAS_100 = {5, 6}
         df_valid = df_valid.sort_values(['RESPONSABLE', 'AÑO_ISO', 'SEMANA_ISO', 'DOW'])
 
+        # ====================================================
+        # PERSONAL COMPLETO: hoja PERSONAL + técnicos con horas extras
+        # (todos aparecen en el reporte, tengan o no órdenes de trabajo)
+        # ====================================================
+        import unicodedata
+
+        def _name_key(x):
+            t = unicodedata.normalize('NFKD', str(x))
+            t = ''.join(c for c in t if not unicodedata.combining(c))
+            return ' '.join(sorted(t.upper().replace(',', ' ').split()))
+
+        cargos = {}
+        personal_nombres = []
+        if personal_data is not None and not personal_data.empty:
+            _cols = list(personal_data.columns)
+            _name_col = next((c for c in ['NOMBRE COMPLETO', 'NOMBRE', 'NOMBRES', 'EMPLEADO',
+                                          'TECNICO', 'TÉCNICO', 'RESPONSABLE', 'PERSONAL', 'COLABORADOR']
+                              if c in _cols), None)
+            if _name_col is None:
+                _name_col = next((c for c in _cols if 'NOMBRE' in str(c).upper()), None)
+            _cargo_col = next((c for c in ['CARGO', 'PUESTO', 'FUNCION', 'FUNCIÓN'] if c in _cols), None)
+            if _name_col:
+                for _i, _n in enumerate(personal_data[_name_col].astype(str)):
+                    _n = _n.strip()
+                    if not _n or _n.upper() in ('NAN', 'NONE'):
+                        continue
+                    personal_nombres.append(_n)
+                    if _cargo_col:
+                        _cg = str(personal_data[_cargo_col].iloc[_i]).strip()
+                        if _cg.lower() not in ('', 'nan', 'none'):
+                            cargos[_name_key(_n)] = _cg
+            else:
+                st.warning("No se encontró la columna de nombres en la hoja PERSONAL; "
+                           "el reporte solo incluye al personal con horas extras.")
+
+        tecnicos_dict = {}
+        for _n in sorted(df_valid['RESPONSABLE'].unique()):
+            tecnicos_dict.setdefault(_name_key(_n), _n)
+        for _n in personal_nombres:
+            tecnicos_dict.setdefault(_name_key(_n), _n)
+        df_valid['RESPONSABLE'] = df_valid['RESPONSABLE'].map(lambda _n: tecnicos_dict[_name_key(_n)])
+        tecnicos_todos = sorted(tecnicos_dict.values(), key=lambda x: x.upper())
+
         # Hoja 1: HE Semanal por Técnico
         # (muestra TODAS las semanas y días del rango solicitado, tengan o no órdenes)
         ws1 = wb.create_sheet("HE Semanal por Técnico")
@@ -1446,7 +1491,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
         fi_date = fecha_inicio.date() if hasattr(fecha_inicio, 'date') else fecha_inicio
         ff_date = fecha_fin.date()    if hasattr(fecha_fin,    'date') else fecha_fin
 
-        tecnicos_lista = sorted(df_valid['RESPONSABLE'].unique())
+        tecnicos_lista = tecnicos_todos  # todo el personal, con o sin horas extras
 
         # Todas las semanas (lunes) que tocan el rango solicitado
         semanas_rango = []
@@ -1474,6 +1519,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
             current_row += 1
 
             total_h50_tec = total_h100_tec = 0.0
+            fila_ini_tec = current_row
 
             for lunes_d in semanas_rango:
                 domingo_d = lunes_d + timedelta(days=6)
@@ -1491,6 +1537,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                     if fi_date <= fecha_dia <= ff_date:
                         dias_en_rango.append((dow, fecha_dia))
 
+                fila_ini_sem = current_row
                 for i_dia, (dow, fecha_dia) in enumerate(dias_en_rango):
                     dia_nombre = DIAS_NOMBRES[dow]
                     semana_label = f"S{semana_iso:02d} {fecha_dia.strftime('%d/%m/%Y')}"
@@ -1521,20 +1568,20 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
 
                     cs(ws1, current_row, 2, dia_nombre, size=9, bg=bg_row, border=thin_border, bold=(dow in DIAS_100))
 
-                    cs(ws1, current_row, 3, ent_dt, size=9, bg=bg_row, border=thin_border,
-                       number_format='hh:mm' if ent_dt != "" else None)
-                    cs(ws1, current_row, 4, sal_dt, size=9, bg=bg_row, border=thin_border,
-                       number_format='hh:mm' if sal_dt != "" else None)
+                    cs(ws1, current_row, 3, ent_dt if ent_dt != "" else None, size=9, bg=bg_row,
+                       border=thin_border, number_format='hh:mm')
+                    cs(ws1, current_row, 4, sal_dt if sal_dt != "" else None, size=9, bg=bg_row,
+                       border=thin_border, number_format='hh:mm')
 
                     if dow in DIAS_100:
                         h50_val, h100_val = 0.0, h_horas
                     else:
                         h50_val, h100_val = h_horas, 0.0
 
-                    cs(ws1, current_row, 5, round(h50_val, 2) if h50_val > 0 else "",
-                       size=9, bg=bg_row, border=thin_border, number_format='0.00' if h50_val > 0 else None)
-                    cs(ws1, current_row, 6, round(h100_val, 2) if h100_val > 0 else "",
-                       size=9, bg=bg_row, border=thin_border, number_format='0.00' if h100_val > 0 else None)
+                    cs(ws1, current_row, 5, round(h50_val, 2) if h50_val > 0 else None,
+                       size=9, bg=bg_row, border=thin_border, number_format='0.00')
+                    cs(ws1, current_row, 6, round(h100_val, 2) if h100_val > 0 else None,
+                       size=9, bg=bg_row, border=thin_border, number_format='0.00')
                     cs(ws1, current_row, 7, ot_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
                     cs(ws1, current_row, 8, equipo_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
                     cs(ws1, current_row, 9, actividad_str, size=9, bg=bg_row, border=thin_border, h_align="left", wrap=True)
@@ -1543,14 +1590,16 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                     total_h100_sem += h100_val
                     current_row += 1
 
-                # Subtotal semana
+                fila_fin_sem = current_row - 1
+
+                # Subtotal semana (fórmula: se recalcula si se ingresan datos manualmente)
                 ws1.row_dimensions[current_row].height = 14
                 cs(ws1, current_row, 1, "SUBTOTAL SEMANA", bold=True, size=9,
                    bg=SUM_BLUE, border=thin_border, h_align="right")
                 for ci in [2, 3, 4]:
                     cs(ws1, current_row, ci, "", size=9, bg=SUM_BLUE, border=thin_border)
-                cs(ws1, current_row, 5, round(total_h50_sem, 2), bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
-                cs(ws1, current_row, 6, round(total_h100_sem, 2), bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
+                cs(ws1, current_row, 5, f"=SUM(E{fila_ini_sem}:E{fila_fin_sem})", bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
+                cs(ws1, current_row, 6, f"=SUM(F{fila_ini_sem}:F{fila_fin_sem})", bold=True, size=9, bg=SUM_BLUE, border=thin_border, number_format='0.00')
                 for ci in [7, 8, 9]:
                     cs(ws1, current_row, ci, "", size=9, bg=SUM_BLUE, border=thin_border)
                 current_row += 1
@@ -1564,8 +1613,8 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                bg=TOTAL_GREEN, border=thick_border, h_align="left")
             for ci in [2, 3, 4]:
                 cs(ws1, current_row, ci, "", bold=True, size=10, bg=TOTAL_GREEN, border=thick_border)
-            cs(ws1, current_row, 5, round(total_h50_tec, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
-            cs(ws1, current_row, 6, round(total_h100_tec, 2), bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+            cs(ws1, current_row, 5, f'=SUMIF(A{fila_ini_tec}:A{current_row - 1},"SUBTOTAL SEMANA",E{fila_ini_tec}:E{current_row - 1})', bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
+            cs(ws1, current_row, 6, f'=SUMIF(A{fila_ini_tec}:A{current_row - 1},"SUBTOTAL SEMANA",F{fila_ini_tec}:F{current_row - 1})', bold=True, size=10, bg=TOTAL_GREEN, border=thick_border, number_format='0.00')
             for ci in [7, 8, 9]:
                 cs(ws1, current_row, ci, "", bold=True, size=10, bg=TOTAL_GREEN, border=thick_border)
             current_row += 2
@@ -1600,9 +1649,15 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                 htot = h50 + h100
                 val  = float(grp['SALDO_HORAS_EXTRAS'].sum())
                 rows.append({'TECNICO': tec, 'H50': h50, 'H100': h100, 'HTOT': htot, 'VALOR': val})
-            return pd.DataFrame(rows).sort_values('HTOT', ascending=False)
+            return pd.DataFrame(rows, columns=['TECNICO', 'H50', 'H100', 'HTOT', 'VALOR'])
 
         resumen_df = calc_resumen_tecnico(df_valid)
+        _ya = set(resumen_df['TECNICO'])
+        _faltan = [{'TECNICO': t, 'H50': 0.0, 'H100': 0.0, 'HTOT': 0.0, 'VALOR': 0.0}
+                   for t in tecnicos_todos if t not in _ya]
+        if _faltan:
+            resumen_df = pd.concat([resumen_df, pd.DataFrame(_faltan)], ignore_index=True)
+        resumen_df = resumen_df.sort_values(['HTOT', 'TECNICO'], ascending=[False, True]).reset_index(drop=True)
         gt_h50 = gt_h100 = gt_htot = gt_val = 0.0
         for i_r, (_, row_r) in enumerate(resumen_df.iterrows()):
             ri = i_r + 4
@@ -1662,20 +1717,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
         # HOJAS: REPORTE DE JUSTIFICACIÓN DE SOBRETIEMPO
         # (una hoja por semana, un bloque por empleado)
         # ====================================================
-        # Cargo de cada empleado (si la hoja PERSONAL lo trae)
-        cargos = {}
-        if personal_data is not None and not personal_data.empty:
-            name_col = next((c for c in ['NOMBRE COMPLETO', 'NOMBRE', 'NOMBRES', 'EMPLEADO',
-                                         'TECNICO', 'TÉCNICO', 'RESPONSABLE']
-                             if c in personal_data.columns), None)
-            cargo_col = next((c for c in ['CARGO', 'PUESTO', 'FUNCION', 'FUNCIÓN']
-                              if c in personal_data.columns), None)
-            if name_col and cargo_col:
-                for n, cg in zip(personal_data[name_col].astype(str), personal_data[cargo_col].astype(str)):
-                    n = n.strip().upper()
-                    cg = cg.strip()
-                    if n and n != 'NAN' and cg.lower() not in ('', 'nan', 'none'):
-                        cargos[n] = cg
+        # (los cargos ya se leyeron arriba, junto con el listado de personal)
 
         def horas_a_excel(h):
             """Horas decimales -> fracción de día (formato [h]:mm)."""
@@ -1743,7 +1785,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
             cs(wsj, 6, 7, f"Semana ISO {semana_iso} / {año_iso}", size=9, border=thin_border)
 
             df_wk = df_valid[(df_valid['AÑO_ISO'] == año_iso) & (df_valid['SEMANA_ISO'] == semana_iso)]
-            empleados = sorted(df_wk['RESPONSABLE'].unique())
+            empleados = list(tecnicos_todos)  # todo el personal
 
             fila = 8
             for emp in empleados:
@@ -1757,7 +1799,7 @@ def generate_overtime_report_excel(overtime_data, fecha_inicio, fecha_fin, orden
                    color=FORTIDEX_BLUE, bg=TECNICO_HEADER, h_align="left", border=thick_border)
                 cs(wsj, fila, 6, "CARGO:", bold=True, size=10, color=FORTIDEX_BLUE,
                    bg=TECNICO_HEADER, border=thick_border)
-                cs(wsj, fila, 7, cargos.get(emp.strip().upper(), ""), bold=True, size=10,
+                cs(wsj, fila, 7, cargos.get(_name_key(emp), ""), bold=True, size=10,
                    color=FORTIDEX_BLUE, bg=TECNICO_HEADER, h_align="left", border=thick_border)
                 fila += 1
 
